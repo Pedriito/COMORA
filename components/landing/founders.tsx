@@ -1,5 +1,6 @@
+import Link from "next/link";
+import { buttonClasses } from "@/components/ui/button";
 import { Eyebrow } from "./eyebrow";
-import { WaitlistForm } from "./waitlist-form";
 
 const BENEFITS = [
   {
@@ -23,7 +24,7 @@ export function Founders() {
       aria-labelledby="fondatrices-title"
       className="bg-ink px-5 py-24 text-sand sm:px-7 lg:py-[140px]"
     >
-      <div className="mx-auto grid max-w-[1240px] grid-cols-[repeat(auto-fit,minmax(min(320px,100%),1fr))] items-start gap-16">
+      <div className="mx-auto grid max-w-[1240px] grid-cols-[repeat(auto-fit,minmax(min(380px,100%),1fr))] items-start gap-16">
         <div data-reveal className="flex flex-col gap-6">
           <Eyebrow onDark>Accès anticipé</Eyebrow>
           <h2
@@ -36,22 +37,7 @@ export function Founders() {
             Avant l’ouverture à toutes les églises le 1er décembre, nous accompagnons 20 églises de près. En
             échange, nous vous demandons simplement de nous dire ce qui marche et ce qui manque.
           </p>
-          <ul className="mt-2 flex flex-col gap-5">
-            {BENEFITS.map((benefit) => (
-              <li key={benefit.title} className="flex items-start gap-3.5">
-                <span
-                  aria-hidden="true"
-                  className="flex size-7 flex-none items-center justify-center rounded-full bg-coral text-[13px] font-bold text-white"
-                >
-                  ✓
-                </span>
-                <span className="flex flex-col gap-1">
-                  <span className="text-[17px] font-semibold text-sand">{benefit.title}</span>
-                  <span className="text-base leading-[1.55] text-mist-dark">{benefit.text}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
+          <BenefitList />
         </div>
 
         <div
@@ -59,9 +45,40 @@ export function Founders() {
           className="flex flex-col gap-[18px] rounded-[28px] border border-moss-light bg-ink-card p-6 sm:p-9"
         >
           <h3 className="font-display text-[30px] leading-[1.1] font-semibold">Demander mon accès</h3>
-          <WaitlistForm />
+          <p className="text-base leading-[1.6] text-mist">
+            Quelques questions sur votre église (taille, équipes, organisation actuelle) pour réunir des
+            églises fondatrices dont le quotidien ressemble au nôtre. Comptez trois minutes.
+          </p>
+          <Link
+            href="/demande-acces"
+            className={buttonClasses({ variant: "accent", size: "lg", shape: "pill", fullWidth: true, className: "mt-2" })}
+          >
+            Demander mon accès
+          </Link>
         </div>
       </div>
     </section>
+  );
+}
+
+/** Les trois avantages des églises fondatrices (section d'accueil et page de demande). */
+export function BenefitList() {
+  return (
+    <ul className="mt-2 flex flex-col gap-5">
+      {BENEFITS.map((benefit) => (
+        <li key={benefit.title} className="flex items-start gap-3.5">
+          <span
+            aria-hidden="true"
+            className="flex size-7 flex-none items-center justify-center rounded-full bg-coral text-[13px] font-bold text-white"
+          >
+            ✓
+          </span>
+          <span className="flex flex-col gap-1">
+            <span className="text-[17px] font-semibold text-sand">{benefit.title}</span>
+            <span className="text-base leading-[1.55] text-mist-dark">{benefit.text}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

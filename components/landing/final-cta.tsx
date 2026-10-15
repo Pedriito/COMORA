@@ -1,5 +1,6 @@
 import Image from "next/image";
 import louangeImage from "@/assets/images/louange-lumieres.jpg";
+import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 import { buttonClasses } from "@/components/ui/button";
 import { Parallax } from "./motion";
@@ -16,14 +17,14 @@ export function FinalCta() {
       <div data-reveal className="relative mx-auto flex max-w-[900px] flex-col items-center gap-7 text-center">
         <Logo size={72} word="none" color="#efece3" />
         <h2 id="cta-title" className="font-display text-[clamp(46px,6vw,92px)] leading-[0.96] font-semibold">
-          Rassemblez votre église dès dimanche.
+          Votre église mérite mieux qu’un groupe WhatsApp.
         </h2>
         <p className="text-[18px] text-mist">
           20 places fondatrices avant l’ouverture à toutes les églises, le 1er décembre.
         </p>
-        <a href="#fondatrices" className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}>
+        <Link href="/demande-acces" className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}>
           Demander mon accès
-        </a>
+        </Link>
       </div>
     </section>
   );

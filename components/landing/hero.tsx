@@ -1,5 +1,6 @@
 import Image from "next/image";
 import heroImage from "@/assets/images/hero-louange.jpg";
+import Link from "next/link";
 import { buttonClasses } from "@/components/ui/button";
 import { FloatCard, Parallax } from "./motion";
 
@@ -50,9 +51,9 @@ export function Hero() {
             bénévoles, communication, chants et événements. Sur le web, iPhone et Android.
           </p>
           <div className="flex flex-wrap items-center gap-3.5">
-            <a href="#fondatrices" className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}>
+            <Link href="/demande-acces" className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}>
               Demander mon accès
-            </a>
+            </Link>
             <a
               href="#fonctionnalites"
               className="flex h-[52px] items-center gap-2.5 rounded-full border border-sand/40 px-6 text-base font-semibold text-sand transition-colors hover:bg-sand/10 hover:text-white"

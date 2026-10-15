@@ -75,8 +75,8 @@ export function SiteHeader() {
           >
             Se connecter
           </Link>
-          <a
-            href="#fondatrices"
+          <Link
+            href="/demande-acces"
             className={buttonClasses({
               variant: "accent",
               size: "md",
@@ -85,7 +85,7 @@ export function SiteHeader() {
             })}
           >
             Demander mon accès
-          </a>
+          </Link>
           <button
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
@@ -125,13 +125,13 @@ export function SiteHeader() {
             Se connecter
           </Link>
         </nav>
-        <a
-          href="#fondatrices"
+        <Link
+          href="/demande-acces"
           onClick={closeMenu}
           className={buttonClasses({ variant: "accent", size: "lg", shape: "pill", fullWidth: true, className: "mt-3" })}
         >
           Demander mon accès
-        </a>
+        </Link>
       </div>
     </header>
   );

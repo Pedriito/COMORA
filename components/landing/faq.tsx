@@ -22,7 +22,7 @@ const QUESTIONS = [
   {
     question: "Les membres et bénévoles doivent-ils payer ?",
     answer:
-      "Non. L’application iOS, Android et web est gratuite pour tous vos membres. Seule l’église souscrit un abonnement, selon sa taille.",
+      "Non. L’application, sur téléphone comme sur ordinateur, est gratuite pour tous vos membres. Seule l’église souscrit un abonnement, selon sa taille.",
   },
   {
     question: "Les dons en ligne sont-ils disponibles ?",
@@ -30,8 +30,9 @@ const QUESTIONS = [
       "Ils arrivent bientôt. Vos membres pourront donner par carte ou prélèvement SEPA depuis l’application, les fonds seront versés directement sur le compte de l’église et les reçus fiscaux générés automatiquement.",
   },
   {
-    question: "Puis-je changer d’offre en cours d’année ?",
-    answer: "À tout moment. Le changement est immédiat et calculé au prorata, sans frais.",
+    question: "Puis-je changer d’offre en cours de route ?",
+    answer:
+      "Vous pouvez passer à une offre supérieure à tout moment : le changement est immédiat et calculé au prorata, sans frais. En mensuel, vous pouvez aussi descendre d’offre à tout moment ; en annuel, à l’échéance des 12 mois.",
   },
 ];
 

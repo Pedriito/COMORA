@@ -28,7 +28,7 @@ export default function ConnexionPage() {
           Ouverture à toutes les églises le 1er décembre.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3.5">
-          <Link href="/#fondatrices" className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}>
+          <Link href="/demande-acces" className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}>
             Demander mon accès
           </Link>
           <Link

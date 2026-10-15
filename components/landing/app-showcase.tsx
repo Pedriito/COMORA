@@ -12,7 +12,7 @@ export function AppShowcase() {
     >
       <div className="mx-auto grid max-w-[1240px] items-center gap-16 lg:grid-cols-2">
         <div data-reveal className="flex flex-col gap-6">
-          <Eyebrow onDark>Application iOS &amp; Android</Eyebrow>
+          <Eyebrow onDark>Application mobile</Eyebrow>
           <h2
             id="application-title"
             className="font-display text-[clamp(42px,5vw,76px)] leading-[0.98] font-semibold"
@@ -24,7 +24,7 @@ export function AppShowcase() {
             retrouvent les chants et les annonces de la semaine.
           </p>
           <p className="text-[15px] text-mist-dark">
-            Sur iPhone, Android et ordinateur, directement depuis le navigateur.
+            Sur iPhone, Android et ordinateur : elle s’installe depuis le navigateur, sans passer par les stores.
           </p>
         </div>
 

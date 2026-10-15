@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { buttonClasses, type ButtonVariant } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
@@ -15,7 +16,7 @@ type Plan = {
   monthly: number;
   scope: string;
   features: string[];
-  cta: { label: string; variant: ButtonVariant };
+  cta: { label: string; variant: ButtonVariant; href: string };
   featured?: boolean;
 };
 
@@ -30,9 +31,9 @@ const PLANS: Plan[] = [
       "Indisponibilités et rappels",
       "Chants et grilles d’accords",
       "Projection des chants, salle et streaming",
-      "Apps iOS et Android",
+      "Application mobile (iPhone, Android)",
     ],
-    cta: { label: "Demander mon accès", variant: "outline" },
+    cta: { label: "Demander mon accès", variant: "outline", href: "/demande-acces" },
   },
   {
     name: "Communauté",
@@ -46,7 +47,7 @@ const PLANS: Plan[] = [
       "Dons en ligne et reçus fiscaux (bientôt)",
       "Administrateurs illimités",
     ],
-    cta: { label: "Demander mon accès", variant: "accent" },
+    cta: { label: "Demander mon accès", variant: "accent", href: "/demande-acces" },
     featured: true,
   },
   {
@@ -61,14 +62,17 @@ const PLANS: Plan[] = [
       "Migration des données offerte",
       "Accompagnement et formation dédiés",
     ],
-    cta: { label: "Parler à l’équipe", variant: "dark" },
+    cta: { label: "Parler à l’équipe", variant: "dark", href: "/demande-acces?offre=reseau" },
   },
 ];
 
 const GUARANTEES = [
   { title: "Hébergé en France", text: "Données conformes au RGPD, chiffrées." },
   { title: "Support en français", text: "Une équipe qui connaît la vie d’église." },
-  { title: "Sans engagement", text: "Résiliable à tout moment, SEPA ou virement." },
+  {
+    title: "Sans engagement en mensuel",
+    text: "Résiliable à tout moment. L’annuel est payé d’avance pour 12 mois. SEPA ou virement.",
+  },
   { title: "Tarif solidaire", text: "Essentiel offert aux églises de moins de 30 membres." },
 ];
 
@@ -116,7 +120,7 @@ export function Pricing() {
                 price={price(plan.monthly)}
                 note={
                   annual
-                    ? `soit ${amount.format(price(plan.monthly) * 12)} € HT facturés par an`
+                    ? `soit ${amount.format(price(plan.monthly) * 12)} € HT facturés par an, engagement 12 mois`
                     : "Sans engagement, résiliable à tout moment"
                 }
               />
@@ -188,12 +192,12 @@ function PlanCard({ plan, price, note }: { plan: Plan; price: number; note: stri
       <p className={cx("min-h-5 text-[14px] font-semibold", featured ? "text-teal-pale" : "text-teal-dark")}>
         {note}
       </p>
-      <a
-        href="#fondatrices"
+      <Link
+        href={plan.cta.href}
         className={buttonClasses({ variant: plan.cta.variant, size: "lg", shape: "pill", fullWidth: true })}
       >
         {plan.cta.label}
-      </a>
+      </Link>
       <ul
         className={cx(
           "flex flex-col gap-3 border-t pt-5 text-[15px]",

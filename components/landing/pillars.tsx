@@ -128,8 +128,8 @@ export function Pillars() {
               >
                 <span className="flex items-center justify-between bg-sand px-4 py-3.5">
                   <span className="text-[14px] font-semibold">Dim. 4 octobre · Louange</span>
-                  <Badge tone="green" size="sm">
-                    Complet
+                  <Badge tone="amber" size="sm">
+                    3/4 confirmés
                   </Badge>
                 </span>
                 {TEAM.map((member) => (
@@ -222,7 +222,7 @@ export function Pillars() {
                 phase={1.8}
                 className="flex flex-col gap-1 rounded-[18px] bg-coral px-[18px] py-3.5 text-white shadow-[0_24px_50px_rgba(0,0,0,0.35)]"
               >
-                <span className="text-[12px] font-semibold uppercase tracking-[0.08em]">Don reçu · mensuel</span>
+                <span className="text-[12px] font-semibold uppercase tracking-[0.08em]">Bientôt · Don mensuel</span>
                 <span className="text-[24px] font-bold">30,00&nbsp;€</span>
                 <span className="text-[12px]">Reçu fiscal envoyé</span>
               </FloatCard>
