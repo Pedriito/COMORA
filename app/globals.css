@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+/*
+ * Thème Comora.
+ * Les jetons reprennent ceux du design system EgliseUI (bg-ink, bg-sand,
+ * text-dark, bg-teal, bg-coral…) pour que les composants de components/ui
+ * s'affichent comme dans la maquette.
+ */
+@theme inline {
+  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-cormorant), "Cormorant Garamond", Georgia, serif;
+}
+
+@theme {
+  /* Verts profonds */
+  --color-ink: #16241f;
+  --color-ink-light: #1f362e;
+  --color-ink-deep: #101b17;
+  --color-ink-card: #1a2c26;
+  --color-moss: #2c4a40;
+  --color-moss-light: #3d5a50;
+
+  /* Sable et lignes */
+  --color-sand: #efece3;
+  --color-sand-light: #f6f4ee;
+  --color-line: #e4e0d4;
+  --color-line-soft: #eeeae0;
+  --color-sage-50: #e6ece8;
+
+  /* Bleu-vert */
+  --color-teal: #5a9ea6;
+  --color-teal-dark: #3d7d85;
+  --color-teal-light: #ebf5f6;
+  --color-teal-50: #f0f7f8;
+  --color-teal-pale: #8fc3c9;
+
+  /* Corail */
+  --color-coral: #e2693c;
+  --color-coral-light: #f4a27f;
+  --color-coral-50: #fbe9e1;
+  --color-coral-deep: #a4441f;
+
+  /* Textes */
+  --color-dark: #1c2b2d;
+  --color-slate: #46555a;
+  --color-muted: #5d6b6c;
+  --color-mist: #c9d3cf;
+  --color-mist-dark: #aebbb6;
+
+  /* Cartes flottantes : sinusoïde verticale + légère rotation */
+  --animate-float:
+    float-y 3.49s cubic-bezier(0.37, 0, 0.63, 1) infinite alternate both,
+    float-r 5.24s cubic-bezier(0.37, 0, 0.63, 1) infinite alternate both;
+  /* Zoom lent de la photo d'accueil */
+  --animate-ken-burns: ken-burns 26s cubic-bezier(0.37, 0, 0.63, 1) -13s infinite alternate both;
+
+  @keyframes float-y {
+    from {
+      translate: 0 calc(var(--float-a, 8px) * -1);
+    }
+    to {
+      translate: 0 var(--float-a, 8px);
+    }
+  }
+  @keyframes float-r {
+    from {
+      rotate: -0.8deg;
+    }
+    to {
+      rotate: 0.8deg;
+    }
+  }
+  @keyframes ken-burns {
+    from {
+      scale: 1.04;
+    }
+    to {
+      scale: 1.12;
+    }
+  }
+}
+
+/* Progression (0 → 1) des sections « collantes », mise à jour au défilement. */
+@property --p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-white font-sans text-dark antialiased;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
+
+/* Apparition au défilement : l'état masqué n'existe que si le JS tourne. */
+@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+  [data-reveal] {
+    transition:
+      opacity 0.9s cubic-bezier(0.2, 0.7, 0.2, 1),
+      translate 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  [data-reveal]:not([data-revealed]) {
+    opacity: 0;
+    translate: 0 48px;
+  }
+}
+
+/* Sans JS, la phrase mot à mot reste lisible. */
+@media (scripting: none) {
+  [data-word] {
+    opacity: 1 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float,
+  .animate-ken-burns {
+    animation: none;
+  }
+}
