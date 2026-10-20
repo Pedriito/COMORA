@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { getChurchContext } from '@/lib/auth/church'
 import { BenevoleNav } from './_components/BenevoleNav'
 import { PwaInstallBanner } from './_components/PwaInstallBanner'
 import { ServiceWorkerRegistrar } from './_components/ServiceWorkerRegistrar'
@@ -16,23 +16,25 @@ export const viewport: Viewport = {
 }
 
 export default async function BenevoleLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Pages publiques (connexion, invitation…) ou compte sans église : pas de navigation
+  const ctx = await getChurchContext()
+  if (!ctx) return <>{children}</>
 
-  if (!user) return <>{children}</>
-
-  const { data: profile } = await supabase
+  const { data: profile } = await ctx.supabase
     .from('profiles')
-    .select('first_name, last_name, permission')
-    .eq('id', user.id)
-    .single()
+    .select('first_name, last_name')
+    .eq('id', ctx.userId)
+    .maybeSingle()
 
   return (
     <div className="flex min-h-screen">
       <BenevoleNav
-        permission={profile?.permission ?? 'viewer'}
+        role={ctx.church.role}
+        isPastoral={ctx.church.isPastoral}
         firstName={profile?.first_name ?? ''}
         lastName={profile?.last_name ?? ''}
+        churches={ctx.memberships.map(m => ({ id: m.churchId, name: m.churchName }))}
+        activeChurchId={ctx.church.churchId}
       />
       <div className="flex-1 lg:ml-60 min-w-0 pb-28 lg:pb-0">
         {children}

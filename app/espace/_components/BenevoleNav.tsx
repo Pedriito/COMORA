@@ -4,19 +4,25 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { logout } from '../login/actions'
-import { permissionLabels } from '@/lib/labels'
+import { churchRoleLabels } from '@/lib/labels'
+import type { ChurchRole } from '@/lib/auth/church'
+import { ChurchSwitcher } from './ChurchSwitcher'
 import {
   IconHome, IconCalendar, IconClock, IconClipboard,
   IconUsers, IconMusicalNote, IconHeart, IconUser,
-  IconGlobe, IconBuilding, IconProjector, IconLogout, IconBan,
-  IconGrid, IconClose, IconVideoCamera,
+  IconGlobe, IconProjector, IconLogout, IconBan,
+  IconGrid, IconClose,
 } from './Icons'
 import { Logo } from '@/components/brand/logo'
 
 type Props = {
-  permission: string
+  role: ChurchRole
+  isPastoral: boolean
   firstName: string
   lastName: string
+  /** Églises du compte ; le sélecteur n'apparaît qu'à partir de deux. */
+  churches: { id: string; name: string }[]
+  activeChurchId: string
 }
 
 type IconComponent = (props: { className?: string }) => React.ReactElement
@@ -49,12 +55,12 @@ const BOTTOM_TABS_ADMIN: NavItem[] = [
   { label: 'Profil',        href: '/espace/profil',               icon: IconUser,        match: p => p === '/espace/profil' },
 ]
 
-export function BenevoleNav({ permission, firstName, lastName }: Props) {
+export function BenevoleNav({ role, isPastoral, firstName, lastName, churches, activeChurchId }: Props) {
   const pathname = usePathname()
 
-  const isSuperAdmin = permission === 'super_admin'
-  const isAdmin = permission === 'admin' || isSuperAdmin
-  const isEditor = permission === 'editor'
+  const isAdmin = role === 'admin'
+  const isEditor = role === 'responsable'
+  const activeChurch = churches.find(c => c.id === activeChurchId)
 
   const groups: NavGroup[] = []
 
@@ -78,13 +84,12 @@ export function BenevoleNav({ permission, firstName, lastName }: Props) {
     adminItems.push({ label: 'Équipes',  href: '/espace/admin/equipes', icon: IconUsers,       match: p => p.startsWith('/espace/admin/equipes') })
     adminItems.push({ label: 'Chants',   href: '/espace/admin/chants',  icon: IconMusicalNote, match: p => p.startsWith('/espace/admin/chants') })
   }
-  if (isAdmin) {
+  if (isPastoral) {
     adminItems.push({ label: 'Pastorale', href: '/espace/admin/pastorale', icon: IconHeart, match: p => p.startsWith('/espace/admin/pastorale') })
+  }
+  if (isAdmin) {
     adminItems.push({ label: 'Bénévoles', href: '/espace/admin', icon: IconUser, match: p => p === '/espace/admin' || p.startsWith('/espace/admin/benevoles') || p.startsWith('/espace/admin/inviter') })
     adminItems.push({ label: 'Site web',  href: '/espace/admin/site', icon: IconGlobe, match: p => p.startsWith('/espace/admin/site') })
-  }
-  if (isSuperAdmin) {
-    adminItems.push({ label: 'Églises', href: '/espace/admin/eglises', icon: IconBuilding, match: p => p.startsWith('/espace/admin/eglises') })
   }
   if (adminItems.length > 0) groups.push({ section: 'Administration', items: adminItems })
 
@@ -93,7 +98,6 @@ export function BenevoleNav({ permission, firstName, lastName }: Props) {
       section: 'Réglages',
       items: [
         { label: 'Vidéoprojection', href: '/espace/admin/parametres', icon: IconProjector, match: p => p.startsWith('/espace/admin/parametres') || p.startsWith('/espace/admin/mediatheque') },
-        { label: 'Régie', href: '/espace/admin/regie', icon: IconVideoCamera, match: p => p.startsWith('/espace/admin/regie') },
       ],
     })
   }
@@ -138,9 +142,14 @@ export function BenevoleNav({ permission, firstName, lastName }: Props) {
           </div>
           <div className="min-w-0">
             <p className="font-display text-[15px] text-white font-medium leading-tight truncate">Comora</p>
-            <p className="font-sans text-[9px] uppercase tracking-[0.18em] text-white/35 mt-0.5">Espace bénévoles</p>
+            <p className="font-sans text-[9px] uppercase tracking-[0.18em] text-white/35 mt-0.5 truncate">{activeChurch?.name ?? 'Espace bénévoles'}</p>
           </div>
         </div>
+        {churches.length > 1 && (
+          <div className="px-4 pb-2">
+            <ChurchSwitcher churches={churches} activeChurchId={activeChurchId} />
+          </div>
+        )}
 
         <nav className="flex-1 px-3 py-2 overflow-y-auto">
           {groups.map((group, gi) => (
@@ -182,7 +191,7 @@ export function BenevoleNav({ permission, firstName, lastName }: Props) {
             </div>
             <div className="min-w-0 flex-1">
               <p className="font-sans text-sm text-white truncate">{firstName} {lastName}</p>
-              <p className="font-sans text-[11px] text-white/40 truncate">{permissionLabels[permission] ?? permission}</p>
+              <p className="font-sans text-[11px] text-white/40 truncate">{churchRoleLabels[role] ?? role}</p>
             </div>
           </Link>
           <form action={logout}>

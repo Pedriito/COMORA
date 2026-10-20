@@ -1,12 +1,13 @@
-export const permissionLabels: Record<string, string> = {
-  super_admin: 'Super-admin',
-  admin:  'Administrateur',
-  editor: 'Éditeur',
-  viewer: 'Lecture seule',
+/** Rôle d'un compte dans l'église (church_memberships.role). */
+export const churchRoleLabels: Record<string, string> = {
+  admin:       'Administrateur',
+  responsable: 'Coordinateur',
+  membre:      'Membre',
 }
 
+/** Rôle dans une équipe (team_members.role). */
 export const roleLabels: Record<string, string> = {
-  leader: 'Responsable',
+  leader: 'Responsable d’équipe',
   member: 'Membre',
 }
 
@@ -31,4 +32,11 @@ export const statusLabels: Record<string, { label: string; color: string }> = {
   active:   { label: 'Actif',               color: 'bg-green-100 text-green-700' },
   invited:  { label: 'Invitation envoyée',   color: 'bg-amber-100 text-amber-700' },
   inactive: { label: 'Inactif',             color: 'bg-gray-100 text-gray-500' },
+}
+
+/** @deprecated Anciennes permissions (profiles.permission), retirées avec la réécriture de l'espace. */
+export const permissionLabels: Record<string, string> = {
+  admin:  'Administrateur',
+  editor: 'Coordinateur',
+  viewer: 'Membre',
 }

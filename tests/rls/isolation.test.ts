@@ -59,8 +59,9 @@ describe("toutes les tables", () => {
 describe.each(CHURCH_TABLES)("isolation : $table", (spec) => {
   it("un compte de A ne lit aucune donnée de B", async () => {
     const { data, error } = await attacker.from(spec.table).select("*").eq("church_id", B.id);
-    expect(error).toBeNull();
-    expect(data).toEqual([]);
+    // Soit aucune ligne, soit un refus d'accès à la table entière (tables réservées au serveur)
+    if (error) expect(error.code).toBe("42501");
+    else expect(data).toEqual([]);
 
     const { data: all } = await attacker.from(spec.table).select("church_id");
     expect((all ?? []).every((row) => row.church_id === A.id)).toBe(true);

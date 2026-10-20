@@ -69,6 +69,9 @@ export const CHURCH_TABLES: TableSpec[] = [
   { table: "prayer_requests", key: "id", build: (c) => ({ church_id: c.id, member_id: c.rows.members.id, subject: "Sujet confidentiel" }), patch: { status: "resolved" } },
   { table: "pastoral_notes", key: "id", build: (c) => ({ church_id: c.id, member_id: c.rows.members.id, notes: "Note confidentielle" }), patch: { notes: "Modifié" } },
   { table: "invite_tokens", key: "id", build: (c) => ({ church_id: c.id, token_hash: `hash-${Math.random()}` }), patch: { label: "Modifié" } },
+  { table: "calendar_feeds", key: "id", build: (c) => ({ church_id: c.id, user_id: c.accounts.membre.userId, token_hash: `hash-${Math.random()}` }), patch: { revoked_at: "2027-01-01T00:00:00Z" } },
+  { table: "plan_share_links", key: "id", build: (c) => ({ church_id: c.id, plan_id: c.rows.plans.id, token_hash: `hash-${Math.random()}`, expires_at: "2030-01-01T00:00:00Z" }), patch: { revoked_at: "2027-01-01T00:00:00Z" } },
+  { table: "account_activations", key: "id", build: (c) => ({ church_id: c.id, user_id: c.accounts.membre.userId, token_hash: `hash-${Math.random()}`, expires_at: "2030-01-01T00:00:00Z" }), patch: { used_at: "2027-01-01T00:00:00Z" } },
 ];
 
 /**

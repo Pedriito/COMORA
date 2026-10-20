@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { routeRequest } from '@/lib/routing/hosts'
 import { supabasePublicKey, supabaseUrl } from '@/lib/supabase/env'
 
 // Pages de l'espace accessibles sans être connecté
@@ -11,31 +12,29 @@ export function isPublicEspacePath(pathname: string) {
 }
 
 export async function proxy(request: NextRequest) {
-  const { pathname, search } = request.nextUrl
+  // 1. Domaine : landing, espace (app.comora.fr) ou site d'église (<slug>.comora.fr)
+  const decision = routeRequest(request.nextUrl, request.headers.get('host'))
+  if (decision.action === 'redirect') return NextResponse.redirect(decision.url, decision.status)
 
-  // Anciennes adresses de l'espace bénévoles
-  if (pathname === '/benevoles' || pathname.startsWith('/benevoles/')) {
-    const target = request.nextUrl.clone()
-    target.pathname = pathname.replace(/^\/benevoles/, '/espace')
-    target.search = search
-    return NextResponse.redirect(target, 308)
-  }
+  const rewriteTo = decision.action === 'rewrite' ? new URL(decision.pathname + request.nextUrl.search, request.url) : null
+  const pathname = rewriteTo?.pathname ?? request.nextUrl.pathname
+  const respond = () => (rewriteTo ? NextResponse.rewrite(rewriteTo, { request }) : NextResponse.next({ request }))
 
-  let supabaseResponse = NextResponse.next({ request })
+  // 2. Session : seulement pour l'espace de gestion
+  if (pathname !== '/espace' && !pathname.startsWith('/espace/')) return respond()
 
+  let response = respond()
   const url = supabaseUrl()
   const key = supabasePublicKey()
-  if (!url || !key) return supabaseResponse
+  if (!url || !key) return response
 
   const supabase = createServerClient(url, key, {
     cookies: {
       getAll() { return request.cookies.getAll() },
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-        supabaseResponse = NextResponse.next({ request })
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options)
-        )
+        response = respond()
+        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options))
       },
     },
   })
@@ -52,9 +51,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/espace/dashboard', request.url))
   }
 
-  return supabaseResponse
+  return response
 }
 
 export const config = {
-  matcher: ['/espace/:path*', '/benevoles', '/benevoles/:path*'],
+  // Tout sauf les fichiers statiques de Next (le routage par domaine concerne toutes les pages)
+  matcher: ['/((?!_next/static|_next/image).*)'],
 }

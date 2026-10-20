@@ -19,9 +19,18 @@ function pillStyle(container: HTMLElement) {
   return pill.style
 }
 
-function renderNav(pathname: string, permission = 'admin') {
+function renderNav(pathname: string, role: 'admin' | 'responsable' | 'membre' = 'admin') {
   pathnameMock.mockReturnValue(pathname)
-  return render(<BenevoleNav permission={permission} firstName="Pierre" lastName="Romer" />)
+  return render(
+    <BenevoleNav
+      role={role}
+      isPastoral={false}
+      firstName="Pierre"
+      lastName="Romer"
+      churches={[{ id: 'c1', name: 'Église de test' }]}
+      activeChurchId="c1"
+    />,
+  )
 }
 
 afterEach(() => {
@@ -76,7 +85,7 @@ describe('BenevoleNav — pastille de surbrillance (mobile)', () => {
   })
 
   it('reste calée sur le nombre réel d’onglets pour un bénévole sans droits admin', () => {
-    const { container } = renderNav('/espace/dashboard', 'member')
+    const { container } = renderNav('/espace/dashboard', 'membre')
     expect(pillStyle(container).width).toBe('calc(20%)')
   })
 })
@@ -89,7 +98,7 @@ describe('BenevoleNav — onglets selon les droits', () => {
   })
 
   it('n’expose pas le bouton Admin à un bénévole sans droits', () => {
-    renderNav('/espace/dashboard', 'member')
+    renderNav('/espace/dashboard', 'membre')
     expect(screen.queryByLabelText("Menu d'administration")).not.toBeInTheDocument()
   })
 })
