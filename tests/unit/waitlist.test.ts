@@ -10,7 +10,7 @@ function form(entries: Record<string, string | string[]>) {
 }
 
 const complete = {
-  eglise: "  Église La Rencontre ",
+  eglise: "  Église de l’Espérance ",
   ville: "Lyon",
   pays: "France",
   nom: "Marie Dupont",
@@ -32,7 +32,7 @@ describe("formulaire de demande d'accès", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.row).toEqual({
-      eglise: "Église La Rencontre",
+      eglise: "Église de l’Espérance",
       ville: "Lyon",
       pays: "France",
       nom: "Marie Dupont",

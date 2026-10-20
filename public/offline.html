@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#16241f" />
+  <title>Hors ligne — Comora</title>
+  <link rel="icon" href="/icons/icon-192.png" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      /* Jetons Comora (copie : cette page est servie hors ligne, sans le CSS de l'app) */
+      --teal:       #5a9ea6;
+      --teal-dark:  #3d7d85;
+      --teal-light: #ebf5f6;
+      --dark:       #1c2b2d;
+      --sand:       #efece3;
+    }
+
+    html, body {
+      height: 100%;
+      background: #ffffff;
+      color: var(--dark);
+      font-family: 'Inter', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+      padding: 2rem 1.5rem;
+      padding-bottom: env(safe-area-inset-bottom, 1.5rem);
+      text-align: center;
+    }
+
+    .logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      margin-bottom: 2rem;
+      box-shadow: 0 2px 12px rgba(90,158,166,.25);
+    }
+
+    .icon-wrap {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: var(--teal-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 2rem;
+    }
+
+    .icon-wrap svg {
+      width: 36px;
+      height: 36px;
+      color: var(--teal);
+    }
+
+    .eyebrow {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.65rem;
+      font-weight: 500;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--teal);
+      margin-bottom: 0.6rem;
+    }
+
+    h1 {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: clamp(2rem, 6vw, 2.75rem);
+      font-weight: 300;
+      color: var(--dark);
+      line-height: 1.15;
+      margin-bottom: 1rem;
+    }
+
+    p {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem;
+      color: rgba(28, 43, 45, 0.55);
+      line-height: 1.65;
+      max-width: 22rem;
+      margin: 0 auto 2rem;
+    }
+
+    .divider {
+      width: 48px;
+      height: 2px;
+      background: var(--teal-light);
+      border-radius: 1px;
+      margin: 0 auto 2rem;
+    }
+
+    button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--teal);
+      color: #fff;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.875rem;
+      font-weight: 500;
+      padding: 0.7rem 1.6rem;
+      border: none;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      transition: background 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button:hover:not(:disabled)  { background: var(--teal-dark); }
+    button:active:not(:disabled) { background: var(--teal-dark); transform: scale(0.97); }
+    button:disabled { opacity: 0.65; cursor: not-allowed; }
+
+    button svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    .footer {
+      position: absolute;
+      bottom: max(1.5rem, env(safe-area-inset-bottom));
+      font-family: 'Inter', sans-serif;
+      font-size: 0.7rem;
+      color: rgba(28,43,45,.3);
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+
+  <img src="/icons/icon-192.png" alt="Comora" class="logo" />
+
+  <div class="icon-wrap" aria-hidden="true">
+    <!-- wifi-off icon -->
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="1" y1="1" x2="23" y2="23"/>
+      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+      <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+      <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
+      <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+      <circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/>
+    </svg>
+  </div>
+
+  <p class="eyebrow">Connexion perdue</p>
+  <h1>Vous êtes hors&nbsp;ligne</h1>
+  <div class="divider"></div>
+  <p>Vérifiez votre connexion Wi-Fi ou données mobiles, puis réessayez.</p>
+
+  <button id="retry-btn" onclick="retry()">
+    <svg id="retry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10"/>
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+    </svg>
+    <span id="retry-label">Réessayer</span>
+  </button>
+
+  <p class="footer">Comora — Votre église, rassemblée.</p>
+
+  <script>
+    async function retry() {
+      const btn   = document.getElementById('retry-btn')
+      const icon  = document.getElementById('retry-icon')
+      const label = document.getElementById('retry-label')
+
+      btn.disabled = true
+      icon.outerHTML = '<div class="spinner" aria-hidden="true"></div>'
+      label.textContent = 'Vérification…'
+
+      try {
+        // Teste la connectivité avec une requête HEAD légère + cache-bust
+        await fetch('/?_sw=1', { method: 'HEAD', cache: 'no-store' })
+        location.reload()
+      } catch {
+        // Toujours hors ligne — on restaure le bouton
+        const spinner = btn.querySelector('.spinner')
+        if (spinner) {
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+          svg.setAttribute('id', 'retry-icon')
+          svg.setAttribute('viewBox', '0 0 24 24')
+          svg.setAttribute('fill', 'none')
+          svg.setAttribute('stroke', 'currentColor')
+          svg.setAttribute('stroke-width', '2')
+          svg.setAttribute('stroke-linecap', 'round')
+          svg.setAttribute('stroke-linejoin', 'round')
+          svg.setAttribute('aria-hidden', 'true')
+          svg.setAttribute('style', 'width:16px;height:16px;flex-shrink:0')
+          svg.innerHTML = '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'
+          spinner.replaceWith(svg)
+        }
+        label.textContent = 'Réessayer'
+        btn.disabled = false
+      }
+    }
+  </script>
+
+</body>
+</html>

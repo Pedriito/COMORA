@@ -44,3 +44,9 @@ next-env.d.ts
 # tests
 /test-results/
 /playwright-report/
+
+# outils locaux
+.embold/
+
+# Audit du code de départ : document interne, jamais publié
+docs/AUDIT.md

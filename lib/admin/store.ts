@@ -1,5 +1,5 @@
 import "server-only";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { getAdminClientIfConfigured } from "@/lib/supabase/admin";
 import type { WaitlistRow } from "@/lib/waitlist";
 
 /*
@@ -29,7 +29,7 @@ export type Invitation = {
 export class StoreError extends Error {}
 
 function client() {
-  const supabase = createAdminClient();
+  const supabase = getAdminClientIfConfigured();
   if (!supabase) throw new StoreError("Supabase n’est pas configuré (SUPABASE_SECRET_KEY manquante).");
   return supabase;
 }
@@ -40,7 +40,7 @@ function fail(context: string, error: { code?: string; message: string }): never
 }
 
 export function isStoreConfigured() {
-  return createAdminClient() !== null;
+  return getAdminClientIfConfigured() !== null;
 }
 
 export async function listRequests(): Promise<AccessRequest[]> {

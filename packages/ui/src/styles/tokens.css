@@ -1,0 +1,65 @@
+/* Jetons de design Comora : source unique.
+ *
+ * Importés par app/globals.css (landing, espace et sites d'église). Ne pas
+ * redéfinir ces valeurs ailleurs : une couleur absente d'ici (par exemple
+ * `teal-200`) retombe silencieusement sur la palette Tailwind par défaut.
+ *
+ * Les couleurs sont émises en variables CSS (`@theme` et non `@theme inline`) :
+ * l'offre Signature peut ainsi les remplacer à l'exécution par celles de
+ * l'église (voir lib/brand/theme.ts). */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  /* Les variables `--font-inter` / `--font-cormorant` sont injectées par next/font. */
+  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-cormorant), "Cormorant Garamond", Georgia, serif;
+}
+
+@theme {
+  /* Verts profonds */
+  --color-ink: #16241f;
+  --color-ink-light: #1f362e;
+  --color-ink-deep: #101b17;
+  --color-ink-card: #1a2c26;
+  --color-moss: #2c4a40;
+  --color-moss-light: #3d5a50;
+
+  /* Sable et lignes */
+  --color-sand: #efece3;
+  --color-sand-light: #f6f4ee;
+  --color-line: #e4e0d4;
+  --color-line-soft: #eeeae0;
+  --color-sage-50: #e6ece8;
+
+  /* Bleu-vert : couleur principale */
+  --color-teal: #5a9ea6;
+  --color-teal-dark: #3d7d85;
+  --color-teal-light: #ebf5f6;
+  --color-teal-50: #f0f7f8;
+  --color-teal-pale: #8fc3c9;
+
+  /* Corail : accent */
+  --color-coral: #e2693c;
+  --color-coral-light: #f4a27f;
+  --color-coral-50: #fbe9e1;
+  --color-coral-deep: #a4441f;
+
+  /* Textes */
+  --color-dark: #1c2b2d;
+  --color-slate: #46555a;
+  --color-muted: #5d6b6c;
+  --color-mist: #c9d3cf;
+  --color-mist-dark: #aebbb6;
+
+  /* Rayons */
+  --radius-control: 0.5rem;
+  --radius-card: 1rem;
+  --radius-panel: 1.5rem;
+
+  /* Ombres */
+  --shadow-card: 0 1px 2px rgb(22 36 31 / 0.06), 0 4px 16px rgb(22 36 31 / 0.06);
+  --shadow-raised: 0 8px 32px rgb(22 36 31 / 0.12);
+  --shadow-overlay: 0 24px 64px rgb(22 36 31 / 0.24);
+}

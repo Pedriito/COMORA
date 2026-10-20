@@ -1,0 +1,110 @@
+.fc-comora {
+  --fc-border-color: rgba(28,43,45,0.08);
+  --fc-today-bg-color: rgba(90,158,166,0.05);
+  --fc-neutral-bg-color: transparent;
+  --fc-page-bg-color: #ffffff;
+  --fc-event-bg-color: transparent;
+  --fc-event-border-color: transparent;
+  --fc-event-text-color: inherit;
+  --fc-list-event-hover-bg-color: var(--color-sand);
+  --fc-now-indicator-color: var(--color-coral);
+  --fc-highlight-color: rgba(90,158,166,0.10);
+}
+
+.fc-comora .fc-scrollgrid { border: none !important; }
+.fc-comora .fc-scrollgrid td,
+.fc-comora .fc-scrollgrid th { border-color: rgba(28,43,45,0.08) !important; }
+
+.fc-comora .fc-col-header-cell {
+  background: transparent;
+  border-left: none !important;
+  border-right: none !important;
+  padding: 10px 0 8px;
+}
+.fc-comora .fc-col-header-cell-cushion {
+  font-family: var(--font-inter, sans-serif);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(28,43,45,0.35) !important;
+  text-decoration: none !important;
+  cursor: default;
+}
+
+.fc-comora .fc-daygrid-day-number {
+  font-family: var(--font-inter, sans-serif);
+  font-size: 13px;
+  color: rgba(28,43,45,0.60);
+  padding: 6px 8px;
+  text-decoration: none !important;
+  transition: color 0.1s;
+}
+.fc-comora .fc-daygrid-day:hover .fc-daygrid-day-number { color: rgba(28,43,45,0.90); }
+
+.fc-comora .fc-day-today { background-color: rgba(90,158,166,0.04) !important; }
+.fc-comora .fc-day-today .fc-daygrid-day-number {
+  background: var(--color-teal);
+  color: #ffffff !important;
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 4px 6px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.fc-comora .fc-day-other .fc-daygrid-day-number { color: rgba(28,43,45,0.20); }
+
+.fc-comora .fc-daygrid-day:hover { background-color: rgba(28,43,45,0.015); }
+
+.fc-comora .fc-event {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 2px !important;
+  margin-bottom: 2px !important;
+  cursor: pointer;
+}
+.fc-comora .fc-event-main { padding: 0 !important; }
+.fc-comora .fc-daygrid-event-dot { display: none !important; }
+.fc-comora .fc-daygrid-event { margin-top: 1px; }
+.fc-comora .fc-event:hover { opacity: 0.80; }
+.fc-comora .fc-event.fc-event-dragging { opacity: 0.45; cursor: grabbing; }
+
+.fc-comora .fc-daygrid-more-link {
+  font-family: var(--font-inter, sans-serif);
+  font-size: 11px;
+  color: rgba(28,43,45,0.40) !important;
+  font-weight: 500;
+  padding: 0 8px;
+}
+.fc-comora .fc-daygrid-more-link:hover { color: var(--color-teal) !important; background: transparent !important; }
+
+.fc-comora .fc-timegrid-slot-label-cushion {
+  font-family: var(--font-inter, sans-serif);
+  font-size: 11px;
+  color: rgba(28,43,45,0.30);
+}
+
+.fc-comora .fc-popover {
+  border: 1px solid rgba(28,43,45,0.08) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.10) !important;
+  overflow: hidden;
+}
+.fc-comora .fc-popover-header {
+  background: var(--color-sand) !important;
+  font-family: var(--font-inter, sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(28,43,45,0.55) !important;
+  padding: 8px 12px !important;
+}
+.fc-comora .fc-popover-close { color: rgba(28,43,45,0.35) !important; }
+
+.fc-comora .fc-highlight { background: rgba(90,158,166,0.08) !important; }

@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
+import { supabasePublicKey, supabaseUrl } from "./env";
 
 /**
  * Client Supabase côté serveur, sans session utilisateur (rôle « anon »).
@@ -8,9 +9,8 @@ import { createClient } from "@supabase/supabase-js";
  * Renvoie null tant que les variables d'environnement ne sont pas définies.
  */
 export function createAnonClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = supabaseUrl();
+  const key = supabasePublicKey();
   if (!url || !key) return null;
 
   return createClient(url, key, {
