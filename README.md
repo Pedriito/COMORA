@@ -95,7 +95,29 @@ docs/                       audit et plan du chantier
 
 ## Base de données
 
-Les migrations actuelles (`supabase/migrations/`) couvrent la landing : `waitlist`, `invitations`, `profiles`. Le schéma de l'espace de gestion (équipes, plans de culte, chants…) sera écrit à l'étape 2, avec un cloisonnement strict par église (RLS sur toutes les tables). Projet Supabase à créer en région `eu-west-3` (Paris).
+Schéma dans `supabase/migrations/` :
+
+- `20261005…` et `20261008…` : demandes d'accès de la landing (`waitlist`, `invitations`, `early_access_accounts`), remplacées à l'étape 3 ;
+- `20261020…_espace_multi_eglises.sql` : l'espace de gestion, **cloisonné par église**.
+
+Règles du cloisonnement :
+
+- chaque table métier porte `church_id`, et une clé étrangère composite empêche de relier deux lignes d'églises différentes ;
+- RLS activée et forcée sur toutes les tables, en lecture et en écriture, via `is_church_member()`, `has_church_role()` et `current_church_id()` ;
+- rôles d'église dans `church_memberships` (`admin`, `responsable`, `membre`, plus la capacité `pastoral`) ; un compte peut appartenir à plusieurs églises ;
+- `members` : les personnes de l'église, avec ou sans compte ; leurs coordonnées (`member_contacts`) ne sont visibles que d'elles-mêmes et des responsables ;
+- la pastorale n'est lisible que par le rôle `pastoral` ; l'équipe Comora (`platform_admins`) n'a accès à aucune donnée d'église ;
+- le site public passe par la fonction `public_church_site(slug)`, seule ouverte sans compte.
+
+### Tests d'isolation
+
+```bash
+supabase start        # base locale (Docker)
+supabase db reset     # applique les migrations
+npm run test:rls      # deux églises de test, chaque table attaquée avec la clé publique
+```
+
+Une table ajoutée sans test d'isolation fait échouer la suite. Projet Supabase hébergé : région `eu-west-3` (Paris).
 
 ## Contenus et licences
 

@@ -5,7 +5,7 @@ import { hashInvitationToken, isWellFormedToken } from "@/lib/invitations";
 /*
  * Création d'un compte depuis le lien d'invitation d'une église acceptée.
  * Le compte est créé dans Supabase Auth (e-mail déjà confirmé : il vient de
- * notre invitation) et relié à la demande par public.profiles.
+ * notre invitation) et relié à la demande par public.early_access_accounts.
  */
 
 export const PASSWORD_MIN_LENGTH = 10;

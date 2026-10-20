@@ -23,6 +23,17 @@ export default defineConfig({
         },
       },
       {
+        // Isolation entre églises, sur la base Supabase locale (npm run test:rls)
+        resolve,
+        test: {
+          name: "rls",
+          environment: "node",
+          include: ["tests/rls/**/*.test.ts"],
+          testTimeout: 30_000,
+          hookTimeout: 180_000,
+        },
+      },
+      {
         // Espace de gestion, site d'église et design system (composants React)
         resolve,
         test: {

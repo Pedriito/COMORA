@@ -154,6 +154,6 @@ export async function insertProfile(profile: {
   eglise: string;
   role: string | null;
 }) {
-  const { error } = await client().from("profiles").insert(profile);
+  const { error } = await client().from("early_access_accounts").insert(profile);
   if (error) fail("Création du profil", error);
 }
