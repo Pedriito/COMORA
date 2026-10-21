@@ -20,9 +20,11 @@ const ACCOUNTS = [
 
 const db = serviceClient();
 
-function must<T>(result: { data: T | null; error: { message: string } | null }, what: string): T {
-  if (result.error || result.data === null) throw new Error(`${what} : ${result.error?.message ?? "aucune donnée"}`);
-  return result.data;
+function must<T>(result: { data: T; error: { message: string } | null }, what: string): NonNullable<T> {
+  if (result.error || result.data === null || result.data === undefined) {
+    throw new Error(`${what} : ${result.error?.message ?? "aucune donnée"}`);
+  }
+  return result.data as NonNullable<T>;
 }
 
 /** Prochain dimanche à `hour` h, dans `weeks` semaines, en UTC (Paris ≈ UTC+1/+2). */

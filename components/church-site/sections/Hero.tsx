@@ -1,7 +1,17 @@
 import WaveDivider from "../WaveDivider"
 import type { ChurchSettings } from "@/lib/churchSettings"
 
-export default function Hero({ settings: s }: { settings: ChurchSettings }) {
+type HeroProps = { settings: ChurchSettings; hasSchedules: boolean }
+
+export default function Hero({ settings: s, hasSchedules }: HeroProps) {
+  // Seuls les liens vers des sections réellement affichées sur la page
+  const links = [
+    hasSchedules && { href: "#horaires", label: "Voir les horaires" },
+    s.youtube_channel_id && { href: "#cultes", label: "Voir les cultes" },
+    (s.address_street || s.email) && { href: "#contact", label: "Nous contacter" },
+  ]
+    .filter((link): link is { href: string; label: string } => Boolean(link))
+    .slice(0, 2)
   const place = [s.address_city, s.address_dept].filter(Boolean).join(' · ')
 
   return (
@@ -36,20 +46,23 @@ export default function Hero({ settings: s }: { settings: ChurchSettings }) {
           </p>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <a
-            href="#horaires"
-            className="px-8 py-3 bg-white text-teal-dark font-sans text-sm tracking-widest uppercase font-medium hover:bg-teal-50 transition-colors rounded-sm"
-          >
-            Préparer ma venue
-          </a>
-          <a
-            href="#cultes"
-            className="px-8 py-3 border border-white/50 text-white font-sans text-sm tracking-widest uppercase font-medium hover:bg-white/10 transition-colors rounded-sm"
-          >
-            Voir les cultes
-          </a>
-        </div>
+        {links.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            {links.map((link, i) => (
+              <a
+                key={link.href}
+                href={link.href}
+                className={
+                  i === 0
+                    ? "px-8 py-3 bg-white text-teal-dark font-sans text-sm tracking-widest uppercase font-medium hover:bg-teal-50 transition-colors rounded-sm"
+                    : "px-8 py-3 border border-white/50 text-white font-sans text-sm tracking-widest uppercase font-medium hover:bg-white/10 transition-colors rounded-sm"
+                }
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="absolute bottom-8 animate-bounce">

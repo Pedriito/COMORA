@@ -56,9 +56,16 @@ export default async function ChurchSitePage({ params }: PageProps<"/sites/[slug
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
-      <Navbar churchName={s.church_name} />
+      <Navbar
+        churchName={s.church_name}
+        sections={{
+          horaires: schedules.length > 0,
+          cultes: Boolean(s.youtube_channel_id),
+          contact: Boolean(s.address_street || s.email),
+        }}
+      />
       <main>
-        <Hero settings={s} />
+        <Hero settings={s} hasSchedules={schedules.length > 0} />
         <Horaires settings={s} schedules={schedules} />
         <Cultes settings={s} />
         <Pasteurs settings={s} />

@@ -168,8 +168,9 @@ export function AssignmentBoard({ planId, detail, memberId, fillKey, isAdmin, fl
 
       {/* Hero */}
       <div className="bg-gradient-to-br from-teal to-teal-dark rounded-2xl px-6 py-5 text-white shadow-lg shadow-teal/20">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
+        {/* Les boutons passent sous le titre quand la colonne est étroite, au lieu de l'écraser */}
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+          <div className="min-w-[14rem] flex-1">
             <p className="font-sans text-[10px] uppercase tracking-widest font-semibold text-white/70 capitalize">
               {date} ·{' '}
               <PlanTimeEditor
@@ -181,7 +182,7 @@ export function AssignmentBoard({ planId, detail, memberId, fillKey, isAdmin, fl
               />
             </p>
             <div className="flex items-center gap-2 mt-0.5">
-              <h2 className="font-display text-2xl font-semibold leading-tight truncate">{plan.title}</h2>
+              <h2 className="font-display text-2xl font-semibold leading-tight">{plan.title}</h2>
               {isRehearsal && (
                 <span className="inline-flex items-center gap-1 font-sans text-[11px] bg-white/15 px-2 py-0.5 rounded-full shrink-0"><IconMusicalNote className="w-3 h-3" /> Répétition</span>
               )}
@@ -190,7 +191,7 @@ export function AssignmentBoard({ planId, detail, memberId, fillKey, isAdmin, fl
               <p className="font-sans text-xs text-white/80 mt-2">{detail.pendingCount} réponse{detail.pendingCount > 1 ? 's' : ''} en attente</p>
             )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
             <ShareButton planId={planId} />
             <Link href={`/espace/admin/plans/${planId}/setlist`} className="inline-flex items-center gap-1.5 font-sans text-xs font-semibold px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg transition-colors">
               <IconPlay className="w-3.5 h-3.5" /> Live

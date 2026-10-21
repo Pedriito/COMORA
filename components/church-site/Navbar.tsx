@@ -2,15 +2,17 @@
 
 import { useState } from "react";
 
-const links = [
-  { label: "Accueil", href: "#accueil" },
-  { label: "Horaires", href: "#horaires" },
-  { label: "Cultes", href: "#cultes" },
-  { label: "Contact", href: "#contact" },
-];
+/** Sections effectivement affichées sur la page : le menu ne propose que celles-là. */
+export type NavSections = { horaires: boolean; cultes: boolean; contact: boolean };
 
-export default function Navbar({ churchName }: { churchName: string }) {
+export default function Navbar({ churchName, sections }: { churchName: string; sections: NavSections }) {
   const [open, setOpen] = useState(false);
+  const links = [
+    { label: "Accueil", href: "#accueil" },
+    sections.horaires && { label: "Horaires", href: "#horaires" },
+    sections.cultes && { label: "Cultes", href: "#cultes" },
+    sections.contact && { label: "Contact", href: "#contact" },
+  ].filter((link): link is { label: string; href: string } => Boolean(link));
 
   return (
     <header
