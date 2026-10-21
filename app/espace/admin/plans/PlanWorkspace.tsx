@@ -8,7 +8,7 @@ import type { PlanDetail } from './getPlanDetail'
 type Props = {
   planId: string
   detail: PlanDetail
-  userId: string
+  memberId: string | null
   isAdmin: boolean
   flashError?: string
   flashSent?: string
@@ -19,7 +19,7 @@ type Props = {
 /** Regroupe AssignmentBoard + VolunteerPicker et pilote localement quel poste est
  *  « ouvert » pour affectation — plus besoin d'un aller-retour serveur (`?fill=`) pour
  *  ouvrir/fermer le panneau, puisque VolunteerPicker ne lit que `detail`, déjà en mémoire. */
-export function PlanWorkspace({ planId, detail, userId, isAdmin, flashError, flashSent, returnTo, initialFillKey }: Props) {
+export function PlanWorkspace({ planId, detail, memberId, isAdmin, flashError, flashSent, returnTo, initialFillKey }: Props) {
   const [fillKey, setFillKey] = useState<string | null>(initialFillKey ?? null)
 
   return (
@@ -27,7 +27,7 @@ export function PlanWorkspace({ planId, detail, userId, isAdmin, flashError, fla
       <AssignmentBoard
         planId={planId}
         detail={detail}
-        userId={userId}
+        memberId={memberId}
         fillKey={fillKey}
         isAdmin={isAdmin}
         flashError={flashError}

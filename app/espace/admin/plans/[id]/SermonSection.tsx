@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { saveSermonRecord, deleteSermon } from './sermon-actions'
+import { saveSermonRecord, deleteSermon, prepareSermonUpload } from './sermon-actions'
 
 export type Sermon = { id: string; title: string; url: string; storage_path: string; created_at: string }
 
@@ -25,21 +25,17 @@ export default function SermonSection({ planId, initial, canManage }: Props) {
     setUploadError(null)
     setUploading(true)
 
-    const safeName = file.name
-      .normalize('NFD').replace(/[̀-ͯ]/g, '')
-      .replace(/[''`´]/g, '')
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-    const path = `sermons/${planId}/${Date.now()}-${safeName}`
+    // 1. Le serveur choisit le chemin (dossier de l'église, nom aléatoire)
+    const prepared = await prepareSermonUpload(file.type)
+    if (!prepared.ok) { setUploadError(prepared.error); setUploading(false); return }
 
-    // 1. Upload du fichier directement depuis le client (Storage)
+    // 2. Dépôt direct depuis le navigateur : les règles du stockage vérifient le rôle et l'église
     const supabase = createClient()
-    const { error: storageError } = await supabase.storage.from('media').upload(path, file)
+    const { error: storageError } = await supabase.storage.from('church-private').upload(prepared.path, file, { contentType: 'application/pdf' })
     if (storageError) { setUploadError(storageError.message); setUploading(false); return }
 
-    const { data: urlData } = supabase.storage.from('media').getPublicUrl(path)
-
-    // 2. Insertion en base via server action admin (bypass RLS)
-    const result = await saveSermonRecord(planId, title.trim() || 'Prédication', path, urlData.publicUrl)
+    // 3. Enregistrement en base
+    const result = await saveSermonRecord(planId, title.trim() || 'Prédication', prepared.path)
     if (!result.ok) { setUploadError(result.error); setUploading(false); return }
     setSermons(prev => [...prev, result.sermon])
 
@@ -49,7 +45,7 @@ export default function SermonSection({ planId, initial, canManage }: Props) {
   }
 
   async function handleDelete(sermon: Sermon) {
-    await deleteSermon(sermon.id, planId, sermon.storage_path)
+    await deleteSermon(sermon.id, planId)
     setSermons(prev => prev.filter(s => s.id !== sermon.id))
   }
 

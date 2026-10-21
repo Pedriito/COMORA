@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { requireChurch } from '@/lib/auth/church'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 
@@ -41,36 +41,34 @@ export default async function EquipesPage({
 }: {
   searchParams: Promise<{ q?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  const isAdmin = ['admin', 'super_admin'].includes(me?.permission ?? '')
-  const isEditor = me?.permission === 'editor'
-  if (!isAdmin && !isEditor) redirect('/espace/dashboard')
+  const ctx = await requireChurch('membre')
+  const churchId = ctx.church.churchId
+  // Coordinateurs et administrateurs voient toutes les équipes ; un membre, celles qu'il dirige
+  const isAdmin = ctx.church.role === 'admin' || ctx.church.role === 'responsable'
+  const isEditor = !isAdmin
 
   const { q } = await searchParams
   const search = q?.trim().toLowerCase() ?? ''
 
-  // Admin voit toutes les équipes ; éditeur voit uniquement celles où il est responsable
   let teams: { id: string; name: string }[] = []
   if (isAdmin) {
-    const { data } = await supabase.from('teams').select('id, name').order('name')
+    const { data } = await ctx.supabase.from('teams').select('id, name').eq('church_id', churchId).order('name')
     teams = data ?? []
-  } else {
-    const { data } = await supabase
+  } else if (ctx.memberId) {
+    const { data } = await ctx.supabase
       .from('team_members')
       .select('team_id, teams(id, name)')
-      .eq('user_id', user.id)
+      .eq('church_id', churchId)
+      .eq('member_id', ctx.memberId)
       .eq('role', 'leader')
     teams = (data ?? [])
       .map(r => r.teams as unknown as { id: string; name: string } | null)
       .filter((t): t is { id: string; name: string } => !!t)
       .sort((a, b) => a.name.localeCompare(b.name))
   }
+  if (isEditor && teams.length === 0) redirect('/espace/dashboard')
 
-  const { data: memberCounts } = await supabase.from('team_members').select('team_id')
+  const { data: memberCounts } = await ctx.supabase.from('team_members').select('team_id').eq('church_id', churchId)
   const countByTeam: Record<string, number> = {}
   memberCounts?.forEach(m => { countByTeam[m.team_id] = (countByTeam[m.team_id] ?? 0) + 1 })
 

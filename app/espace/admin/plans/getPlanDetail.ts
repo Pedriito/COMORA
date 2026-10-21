@@ -1,59 +1,77 @@
 import { unstable_cache } from 'next/cache'
 import type { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { INVITE_EXT_ID } from './constants'
+import { signedSermonUrl } from './sermonUrls'
+import { addDays, localDateString, startOfLocalDayUtc } from '@/lib/timezone'
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
 
-/** Catalogue quasi-statique partagé par tous les plans/utilisateurs (équipes, postes, profils,
+/** Catalogue quasi-statique d'une église, partagé par tous ses plans (équipes, postes, profils,
  *  affectations aux équipes/postes, chants, annonces récurrentes) — mis en cache 5 min pour éviter
  *  de le re-fetcher à chaque affichage/action sur un plan. Invalidé précisément par `revalidateTag`
  *  dans les Server Actions qui modifient ces tables (voir admin/actions.ts, admin/equipes/[id]/actions.ts,
  *  admin/eglises/actions.ts, admin/chants/actions.ts, admin/plans/[id]/annonces-actions.ts). */
-const getStableCatalog = unstable_cache(
-  async () => {
-    const admin = createAdminClient()
-    const [
-      teamsRes,
-      profilesRes,
-      teamMembershipsRes,
-      memberPositionsRes,
-      songsRes,
-      recurringAnnouncementsRes,
-    ] = await Promise.all([
-      // TODO: ajouter `allow_multiple` à la sélection une fois la migration 012 appliquée en base.
-      admin.from('teams').select('id, name, allows_guests, is_coordination, hide_positions, is_prayer_meeting, positions(id, name, archived)').order('name'),
-      admin.from('profiles').select('id, first_name, last_name, desired_frequency').order('first_name'),
-      admin.from('team_members').select('user_id, team_id'),
-      admin.from('member_positions').select('user_id, position_id'),
-      admin.from('songs').select('id, title, arrangements(id, name, chord_chart_key, keys_available)').order('title'),
-      admin.from('recurring_announcements').select('id, title, body, order_index, image_url, video_url, active').eq('active', true).order('order_index'),
-    ])
+const CATALOG_TABLES = ['teams', 'members', 'profiles', 'team-members', 'member-positions', 'songs', 'recurring-announcements'] as const
+export type CatalogTable = typeof CATALOG_TABLES[number]
 
-    // Ne jamais avaler une erreur Supabase en silence (colonne manquante, réseau...) : sans ça,
-    // ce catalogue partagé par tout le module planning retomberait sur des tableaux vides
-    // pendant 5 min (durée du cache), invisible et indiscernable d'un catalogue légitimement vide.
-    for (const [label, res] of [
-      ['teams', teamsRes], ['profiles', profilesRes], ['team_members', teamMembershipsRes],
-      ['member_positions', memberPositionsRes], ['songs', songsRes], ['recurring_announcements', recurringAnnouncementsRes],
-    ] as const) {
-      if (res.error) console.error(`[getStableCatalog] échec requête "${label}":`, res.error.message)
-    }
+/** Tag de cache du catalogue d'une église pour une table : `revalidateTag(catalogTag(churchId, 'songs'), 'max')`
+ *  n'invalide que cette église. */
+export function catalogTag(churchId: string, table: CatalogTable): string {
+  return `church:${churchId}:${table}`
+}
 
-    return {
-      teams: teamsRes.data ?? [],
-      allProfiles: profilesRes.data ?? [],
-      teamMemberships: teamMembershipsRes.data ?? [],
-      memberPositions: memberPositionsRes.data ?? [],
-      allSongs: songsRes.data ?? [],
-      recurringAnnouncements: recurringAnnouncementsRes.data ?? [],
-    }
-  },
-  ['plan-detail-stable-catalog'],
-  { revalidate: 300, tags: ['teams', 'profiles', 'team-members', 'member-positions', 'songs', 'recurring-announcements'] },
-)
+/** Tags d'une entrée de cache : un par église et par table, plus le tag global de la table
+ *  (`revalidateTag('songs')` reste valable, il invalide alors toutes les églises). */
+function catalogTags(churchId: string): string[] {
+  return [...CATALOG_TABLES, ...CATALOG_TABLES.map(t => catalogTag(churchId, t))]
+}
 
-export { INVITE_EXT_ID }
+function loadStableCatalog(churchId: string) {
+  return unstable_cache(
+    async () => {
+      // Clé secrète : une fonction mise en cache ne peut pas lire les cookies de session.
+      // `churchId` vient du contexte serveur (requireChurch) et chaque requête est filtrée dessus.
+      const admin = createAdminClient()
+      const [
+        teamsRes,
+        membersRes,
+        teamMembershipsRes,
+        memberPositionsRes,
+        songsRes,
+        recurringAnnouncementsRes,
+      ] = await Promise.all([
+        admin.from('teams').select('id, name, allows_guests, is_coordination, hide_positions, is_prayer_meeting, positions(id, name, archived, allow_multiple)').eq('church_id', churchId).order('name'),
+        admin.from('members').select('id, first_name, last_name, desired_frequency').eq('church_id', churchId).neq('status', 'inactive').order('first_name'),
+        admin.from('team_members').select('member_id, team_id').eq('church_id', churchId),
+        admin.from('member_positions').select('member_id, position_id').eq('church_id', churchId),
+        admin.from('songs').select('id, title, arrangements(id, name, chord_chart_key, keys_available)').eq('church_id', churchId).order('title'),
+        admin.from('recurring_announcements').select('id, title, body, order_index, image_url, video_url, active').eq('church_id', churchId).eq('active', true).order('order_index'),
+      ])
+
+      // Ne jamais avaler une erreur Supabase en silence : le catalogue retomberait sur des
+      // tableaux vides pendant 5 min (durée du cache), indiscernable d'un catalogue vide.
+      for (const [label, res] of [
+        ['teams', teamsRes], ['members', membersRes], ['team_members', teamMembershipsRes],
+        ['member_positions', memberPositionsRes], ['songs', songsRes], ['recurring_announcements', recurringAnnouncementsRes],
+      ] as const) {
+        if (res.error) console.error(`[getStableCatalog] échec requête "${label}":`, res.error.message)
+      }
+
+      return {
+        teams: teamsRes.data ?? [],
+        allMembers: membersRes.data ?? [],
+        teamMemberships: teamMembershipsRes.data ?? [],
+        memberPositions: memberPositionsRes.data ?? [],
+        allSongs: songsRes.data ?? [],
+        recurringAnnouncements: recurringAnnouncementsRes.data ?? [],
+      }
+    },
+    // Une entrée de cache par église : jamais de résultat partagé entre deux églises
+    ['plan-detail-stable-catalog', churchId],
+    { revalidate: 300, tags: catalogTags(churchId) },
+  )()
+}
+
 
 export type Profile = {
   id: string
@@ -65,20 +83,20 @@ export type Profile = {
   servedThisMonth: number           // nb de services sur le mois calendaire courant
 }
 
-// `allow_multiple` : ajouté par la migration 012, pas encore appliquée en base — optionnel
-// pour l'instant, sélectionné dès qu'elle l'est (voir la requête `teams` ci-dessous).
+// `allow_multiple` : un poste peut être occupé par plusieurs personnes.
 export type Position = { id: string; name: string; allow_multiple?: boolean; archived?: boolean }
 
 export type AssignmentRow = {
   id: string
   status: string
-  user_id: string
+  /** Personne de l'église ; null pour un invité externe */
+  member_id: string | null
   position_id: string | null
   team_id: string | null
   external_name: string | null
   external_email: string | null
   invitation_sent_at: string | null
-  profiles: { first_name: string; last_name: string } | null
+  members: { first_name: string; last_name: string } | null
   positions: { id: string; name: string; team_id: string } | null
   unavailable: boolean
 }
@@ -116,6 +134,17 @@ export type PlanDetail = {
   recurringAnnouncements: unknown[]
   sermons: unknown[]
   videos: unknown[]
+  /** Fuseau de l'église (affichage et saisie des heures) */
+  timeZone: string
+}
+
+export type PlanViewer = {
+  churchId: string
+  /** Personne liée au compte dans l'église (null si le compte n'a pas de fiche) */
+  memberId: string | null
+  /** Responsable ou admin : voit toutes les équipes */
+  canManage: boolean
+  timeZone: string
 }
 
 /** Charge toutes les données d'un plan (équipes, affectations, candidats, contenus)
@@ -123,23 +152,21 @@ export type PlanDetail = {
 export async function getPlanDetail(
   supabase: SupabaseServerClient,
   planId: string,
-  userId: string,
-  isAdmin: boolean,
+  viewer: PlanViewer,
 ): Promise<PlanDetail | null> {
+  const { churchId, memberId, canManage, timeZone } = viewer
   // Fréquence récente : nb de services les 60 derniers jours par bénévole (calculé avant le
   // Promise.all pour permettre de paralléliser `recentPlans` avec les autres requêtes ci-dessous).
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - 60)
 
-  // Bornes du mois calendaire LOCAL, construites à la main. `toISOString()` convertirait
-  // minuit local en UTC et ferait reculer les deux bornes d'un jour aux fuseaux positifs
-  // (Europe/Paris) : le compteur incluait alors le dernier jour du mois précédent et
-  // ignorait le dernier jour du mois courant.
+  // Bornes du mois calendaire dans le fuseau de l'église, converties en instants UTC
   const now = new Date()
-  const firstOfMonth = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-  const monthStart = firstOfMonth(now)
-  const monthEnd = firstOfMonth(new Date(now.getFullYear(), now.getMonth() + 1, 1))
+  const today = localDateString(now, timeZone)
+  const monthStartDate = `${today.slice(0, 7)}-01`
+  const nextMonthDate = addDays(`${monthStartDate.slice(0, 7)}-28`, 4).slice(0, 7) + '-01'
+  const monthStart = startOfLocalDayUtc(monthStartDate, timeZone)
+  const monthEnd = startOfLocalDayUtc(nextMonthDate, timeZone)
 
   const [
     { data: plan },
@@ -153,46 +180,53 @@ export async function getPlanDetail(
     { data: recentPlans },
     { data: monthPlans },
   ] = await Promise.all([
-    supabase.from('plans').select('id, title, service_date, notes, plan_type, team_ids, excluded_position_ids').eq('id', planId).single(),
+    supabase.from('plans').select('id, title, service_date, notes, plan_type, team_ids, excluded_position_ids').eq('id', planId).eq('church_id', churchId).maybeSingle(),
     supabase
       .from('plan_assignments')
-      .select('id, status, user_id, position_id, team_id, external_name, external_email, invitation_sent_at, profiles(first_name, last_name), positions(id, name, team_id)')
+      .select('id, status, member_id, position_id, team_id, external_name, external_email, invitation_sent_at, members(first_name, last_name), positions(id, name, team_id)')
+      .eq('church_id', churchId)
       .eq('plan_id', planId),
-    getStableCatalog(),
-    supabase.from('blockout_dates').select('user_id, start_date, end_date'),
+    loadStableCatalog(churchId),
+    supabase.from('blockout_dates').select('member_id, start_date, end_date').eq('church_id', churchId),
     supabase
       .from('plan_songs')
       .select('id, order_index, key_selected, songs(id, title), arrangements(id, name, chord_chart, chord_chart_key)')
+      .eq('church_id', churchId)
       .eq('plan_id', planId)
       .order('order_index'),
     supabase
       .from('plan_announcements')
       .select('id, title, body, order_index, image_url, video_url')
+      .eq('church_id', churchId)
       .eq('plan_id', planId)
       .order('order_index'),
     supabase
       .from('plan_sermons')
       .select('id, title, url, storage_path, created_at')
+      .eq('church_id', churchId)
       .eq('plan_id', planId)
       .order('created_at'),
     supabase
       .from('plan_videos')
       .select('id, title, url, order_index')
+      .eq('church_id', churchId)
       .eq('plan_id', planId)
       .order('order_index'),
     supabase
       .from('plans')
       .select('id')
-      .gte('service_date', cutoff.toISOString().split('T')[0])
+      .eq('church_id', churchId)
+      .gte('service_date', cutoff.toISOString())
       .neq('id', planId),
     supabase
       .from('plans')
       .select('id')
+      .eq('church_id', churchId)
       .gte('service_date', monthStart)
       .lt('service_date', monthEnd),
   ])
 
-  const { teams, allProfiles, teamMemberships, memberPositions, allSongs, recurringAnnouncements } = catalog
+  const { teams, allMembers, teamMemberships, memberPositions, allSongs, recurringAnnouncements } = catalog
 
   if (!plan) return null
 
@@ -201,45 +235,45 @@ export async function getPlanDetail(
 
   const [{ data: recentAssignments }, { data: monthAssignments }] = await Promise.all([
     recentPlanIds.length > 0
-      ? supabase.from('plan_assignments').select('user_id').in('plan_id', recentPlanIds).neq('user_id', INVITE_EXT_ID)
-      : Promise.resolve({ data: [] as { user_id: string }[] }),
+      ? supabase.from('plan_assignments').select('member_id').eq('church_id', churchId).in('plan_id', recentPlanIds).not('member_id', 'is', null)
+      : Promise.resolve({ data: [] as { member_id: string | null }[] }),
     monthPlanIds.length > 0
-      ? supabase.from('plan_assignments').select('user_id').in('plan_id', monthPlanIds).neq('user_id', INVITE_EXT_ID).neq('status', 'declined')
-      : Promise.resolve({ data: [] as { user_id: string }[] }),
+      ? supabase.from('plan_assignments').select('member_id').eq('church_id', churchId).in('plan_id', monthPlanIds).not('member_id', 'is', null).neq('status', 'declined')
+      : Promise.resolve({ data: [] as { member_id: string | null }[] }),
   ])
 
   const recentCountMap: Record<string, number> = {}
   for (const a of recentAssignments ?? []) {
-    recentCountMap[a.user_id] = (recentCountMap[a.user_id] ?? 0) + 1
+    if (a.member_id) recentCountMap[a.member_id] = (recentCountMap[a.member_id] ?? 0) + 1
   }
 
   const monthCountMap: Record<string, number> = {}
   for (const a of monthAssignments ?? []) {
-    monthCountMap[a.user_id] = (monthCountMap[a.user_id] ?? 0) + 1
+    if (a.member_id) monthCountMap[a.member_id] = (monthCountMap[a.member_id] ?? 0) + 1
   }
 
-  const planDate = plan.service_date.split('T')[0]
+  const planDate = localDateString(plan.service_date, timeZone)
   const unavailableIds = new Set(
-    blockouts?.filter(b => b.start_date <= planDate && b.end_date >= planDate).map(b => b.user_id) ?? []
+    blockouts?.filter(b => b.start_date <= planDate && b.end_date >= planDate).map(b => b.member_id) ?? []
   )
 
   const assignments = (rawAssignments ?? []).map(a => ({
     ...a,
-    unavailable: unavailableIds.has(a.user_id),
+    unavailable: !!a.member_id && unavailableIds.has(a.member_id),
   })) as unknown as AssignmentRow[]
 
   // Membres par équipe
   const membersByTeam: Record<string, Set<string>> = {}
   teamMemberships?.forEach(tm => {
     if (!membersByTeam[tm.team_id]) membersByTeam[tm.team_id] = new Set()
-    membersByTeam[tm.team_id].add(tm.user_id)
+    membersByTeam[tm.team_id].add(tm.member_id)
   })
 
   // Bénévoles cochés par poste (member_positions)
   const userIdsByPosition: Record<string, Set<string>> = {}
   memberPositions?.forEach(mp => {
     if (!userIdsByPosition[mp.position_id]) userIdsByPosition[mp.position_id] = new Set()
-    userIdsByPosition[mp.position_id].add(mp.user_id)
+    userIdsByPosition[mp.position_id].add(mp.member_id)
   })
 
   // Affectations par équipe (team_id direct, sinon via positions)
@@ -255,20 +289,20 @@ export async function getPlanDetail(
     }
   })
 
-  const pendingCount = assignments.filter(a => a.status === 'pending' && a.user_id !== INVITE_EXT_ID).length
+  const pendingCount = assignments.filter(a => a.status === 'pending' && a.member_id !== null).length
 
   const myTeamIdsInPlan = new Set(
     assignments
-      .filter(a => a.user_id === userId)
+      .filter(a => memberId !== null && a.member_id === memberId)
       .map(a => a.team_id ?? a.positions?.team_id)
       .filter((id): id is string => !!id)
   )
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const isCoordinator = (teams ?? []).some((t: any) => t.is_coordination && myTeamIdsInPlan.has(t.id))
-  const canSeeAllTeams = isAdmin || isCoordinator
+  const canSeeAllTeams = canManage || isCoordinator
 
   const myTeamMemberIds = new Set(
-    teamMemberships?.filter(tm => tm.user_id === userId).map(tm => tm.team_id) ?? []
+    teamMemberships?.filter(tm => memberId !== null && tm.member_id === memberId).map(tm => tm.team_id) ?? []
   )
 
   const isRehearsal = plan.plan_type === 'rehearsal'
@@ -303,10 +337,10 @@ export async function getPlanDetail(
     teamAssignments.forEach(a => {
       const key = a.position_id ?? ''
       if (!assignedUserIdsByPosition[key]) assignedUserIdsByPosition[key] = new Set()
-      assignedUserIdsByPosition[key].add(a.user_id)
+      if (a.member_id) assignedUserIdsByPosition[key].add(a.member_id)
     })
 
-    const eligibleProfiles: Profile[] = (allProfiles ?? [])
+    const eligibleProfiles: Profile[] = (allMembers ?? [])
       .filter(p => !teamMemberIds || teamMemberIds.size === 0 || teamMemberIds.has(p.id))
       .map(p => ({
         ...p,
@@ -367,7 +401,12 @@ export async function getPlanDetail(
     allSongs: allSongs ?? [],
     announcements: announcements ?? [],
     recurringAnnouncements: recurringAnnouncements ?? [],
-    sermons: sermons ?? [],
+    sermons: await Promise.all((sermons ?? []).map(async sm => ({
+      ...sm,
+      // PDF privé : URL signée générée à chaque affichage (valable 1 h)
+      url: (await signedSermonUrl(supabase, churchId, sm.storage_path)) ?? '',
+    }))),
     videos: videos ?? [],
+    timeZone,
   }
 }

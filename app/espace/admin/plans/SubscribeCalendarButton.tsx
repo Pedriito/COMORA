@@ -1,22 +1,46 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { IconCalendar } from '@/app/espace/_components/Icons'
+import { createCalendarFeed } from './calendar-actions'
 
+/**
+ * Abonnement au calendrier : chaque compte a son propre lien, par église. Le lien n'est montré
+ * qu'une fois, juste après sa création ; « régénérer » révoque l'ancien.
+ */
 export function SubscribeCalendarButton({
-  icalUrl,
+  hasFeed = false,
   label = "S'abonner",
   className,
 }: {
-  icalUrl: string
+  /** Le compte a déjà un lien actif pour cette église (créé auparavant). */
+  hasFeed?: boolean
   label?: string
   className?: string
 }) {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
-  const webcalUrl = icalUrl.replace(/^https?:\/\//, 'webcal://')
+  const [icalUrl, setIcalUrl] = useState<string | null>(null)
+  const [feedExists, setFeedExists] = useState(hasFeed)
+  const [error, setError] = useState<string | null>(null)
+  const [pending, startTransition] = useTransition()
+  const webcalUrl = icalUrl?.replace(/^https?:\/\//, 'webcal://') ?? ''
+
+  function handleCreate() {
+    setError(null)
+    startTransition(async () => {
+      const res = await createCalendarFeed()
+      if (res.ok) {
+        setIcalUrl(res.url)
+        setFeedExists(true)
+      } else {
+        setError(res.error)
+      }
+    })
+  }
 
   async function handleCopy() {
+    if (!icalUrl) return
     try {
       await navigator.clipboard.writeText(icalUrl)
       setCopied(true)
@@ -63,6 +87,25 @@ export function SubscribeCalendarButton({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+          {!icalUrl ? (
+            <div className="space-y-3">
+              <p className="font-sans text-sm text-dark/70">
+                {feedExists
+                  ? "Tu as déjà un lien d'abonnement. Pour des raisons de sécurité, il n'est affiché qu'une fois. Tu peux en générer un nouveau : l'ancien cessera alors de fonctionner."
+                  : "Crée ton lien personnel d'abonnement. Il n'est affiché qu'une fois : garde-le pour toi."}
+              </p>
+              <button
+                onClick={handleCreate}
+                disabled={pending}
+                className="flex items-center justify-center gap-2 w-full py-3 bg-teal text-white rounded-xl font-sans text-sm font-medium hover:bg-teal-dark transition-colors disabled:opacity-60"
+              >
+                <IconCalendar className="w-4 h-4" />
+                {pending ? 'Création…' : feedExists ? 'Générer un nouveau lien' : 'Créer mon lien'}
+              </button>
+              {error && <p className="font-sans text-xs text-red-600">{error}</p>}
+            </div>
+          ) : (
+          <>
           <a
             href={webcalUrl}
             className="flex items-center justify-center gap-2 w-full py-3 bg-teal text-white rounded-xl font-sans text-sm font-medium hover:bg-teal-dark transition-colors"
@@ -101,8 +144,11 @@ export function SubscribeCalendarButton({
             </div>
             <p className="font-sans text-[11px] text-dark/35">
               Mise à jour automatique : chaque nouveau service ou changement de date apparaît dans ton agenda sans rien refaire.
+              Ce lien est personnel : ne le partage pas. Tu pourras en générer un nouveau à tout moment.
             </p>
           </div>
+          </>
+          )}
         </div>
       </div>
     </>

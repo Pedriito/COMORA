@@ -48,11 +48,20 @@ export async function login(formData: FormData) {
     }
   )
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
-  if (error) {
+  if (error || !data.user) {
     redirect('/espace/login?error=credentials')
   }
 
-  redirect('/espace/dashboard')
+  // Compte sans église active (invitation retirée, église supprimée…)
+  const { data: membership } = await supabase
+    .from('church_memberships')
+    .select('id')
+    .eq('user_id', data.user.id)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+
+  redirect(membership ? '/espace/dashboard' : '/espace/sans-eglise')
 }

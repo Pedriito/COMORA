@@ -68,7 +68,7 @@ describe('PlanCalendar — fluidité des interactions', () => {
 
     render(
       <Profiler id="calendar" onRender={onRender}>
-        <PlanCalendar plans={plans} icalUrl="https://x/y.ics" canManage countByPlan={{}} />
+        <PlanCalendar plans={plans} canManage countByPlan={{}} />
       </Profiler>
     )
 
@@ -97,7 +97,7 @@ describe('PlanCalendar — fluidité des interactions', () => {
 
   it('garde des callbacks stables (`useCallback`) tant que leurs dépendances ne changent pas', () => {
     const plans = buildManyPlans(500)
-    render(<PlanCalendar plans={plans} icalUrl="https://x/y.ics" canManage countByPlan={{}} />)
+    render(<PlanCalendar plans={plans} canManage countByPlan={{}} />)
 
     const initialEventClick = fullCalendarRenders[0].eventClick
     const initialDateClick = fullCalendarRenders[0].dateClick
@@ -124,7 +124,7 @@ describe('PlanCalendar — fluidité des interactions', () => {
     const rawPlans = buildManyPlans(500)
     const { proxy, counts } = makeCountingArray(rawPlans)
 
-    render(<PlanCalendar plans={proxy as any} icalUrl="https://x/y.ics" canManage countByPlan={{}} />)
+    render(<PlanCalendar plans={proxy as any} canManage countByPlan={{}} />)
 
     // Au montage : un seul passage pour `fcEvents` (.map) et un seul pour la liste latérale
     // (spread `[...plans]`, donc l'itérateur, avant filter/sort sur la copie).
@@ -145,7 +145,7 @@ describe('PlanCalendar — fluidité des interactions', () => {
 
   it('simule un glisser-déplacer (déplacement de service) sans provoquer de recalcul superflu', async () => {
     const plans = buildManyPlans(500)
-    render(<PlanCalendar plans={plans} icalUrl="https://x/y.ics" canManage countByPlan={{}} />)
+    render(<PlanCalendar plans={plans} canManage countByPlan={{}} />)
 
     const eventsAtMount = fullCalendarRenders[0].events
     fireEvent.click(screen.getByTestId('fc-event-drop-plan-10'))

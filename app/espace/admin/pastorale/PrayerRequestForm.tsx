@@ -48,7 +48,7 @@ export function PrayerRequestForm({ profiles, buttonVariant = 'inline' }: { prof
       </div>
 
       {useProfile ? (
-        <select name="profile_id" className="w-full border border-teal/20 rounded-lg px-3 py-2 text-sm font-sans text-dark focus:outline-none focus:border-teal/40">
+        <select name="member_id" className="w-full border border-teal/20 rounded-lg px-3 py-2 text-sm font-sans text-dark focus:outline-none focus:border-teal/40">
           <option value="">— Sélectionner —</option>
           {profiles.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
         </select>

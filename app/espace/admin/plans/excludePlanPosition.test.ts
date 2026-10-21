@@ -5,22 +5,20 @@ const {
   redirectMock,
   revalidatePathMock,
   refreshMock,
-  createClientMock,
-  createAdminClientMock,
+  requireChurchMock,
 } = vi.hoisted(() => ({
   redirectMock: vi.fn((url: string) => { throw new Error(`NEXT_REDIRECT:${url}`) }),
   revalidatePathMock: vi.fn(),
   refreshMock: vi.fn(),
-  createClientMock: vi.fn(),
-  createAdminClientMock: vi.fn(),
+  requireChurchMock: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ redirect: redirectMock }))
 // `actions.ts` importe `refresh` en plus de `revalidatePath` : les deux doivent être exposés,
 // sinon le module explose dès l'import.
 vi.mock('next/cache', () => ({ revalidatePath: revalidatePathMock, refresh: refreshMock }))
-vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
-vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: createAdminClientMock }))
+vi.mock('@/lib/auth/church', () => ({ requireChurch: requireChurchMock }))
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: vi.fn() }))
 vi.mock('@/lib/email/espace', () => ({
   sendPlanAssignmentEmail: vi.fn(),
   sendCancellationNotificationEmail: vi.fn(),
@@ -30,14 +28,9 @@ vi.mock('@/lib/pushNotifications', () => ({ sendPushToUser: vi.fn(), sendPushToU
 
 const { excludePlanPositionAsync } = await import('./actions')
 
-/** Client "cookie" utilisé par `requireAdmin()` : auth.getUser() + vérification de permission. */
-function fakeSessionClient(permission = 'admin') {
-  return {
-    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'admin-1' } } }) },
-    from: () => ({
-      select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { permission } }) }) }),
-    }),
-  }
+/** Contexte d'église simulé : le client de session est le faux Supabase du test. */
+function ctxWith(supabase: unknown) {
+  return { supabase, userId: 'user-1', memberId: 'member-1', church: { churchId: 'church-1', role: 'responsable', isPastoral: false } }
 }
 
 type RecordedUpdate = { table: string; payload: Record<string, unknown> }
@@ -71,13 +64,18 @@ function planQueues(currentIds: string[] | null): Record<string, FakeResponse[]>
 
 beforeEach(() => {
   vi.clearAllMocks()
-  createClientMock.mockResolvedValue(fakeSessionClient())
 })
 
 describe('excludePlanPositionAsync', () => {
+  it('exige le rôle responsable', async () => {
+    requireChurchMock.mockResolvedValue(ctxWith(makeRecordingSupabase(planQueues([]))))
+    await excludePlanPositionAsync('plan-1', 'pos-a', true)
+    expect(requireChurchMock).toHaveBeenCalledWith('responsable')
+  })
+
   it("ajoute l'id au tableau existant quand on masque un poste", async () => {
     const supabase = makeRecordingSupabase(planQueues(['pos-a']))
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await excludePlanPositionAsync('plan-1', 'pos-b', true)
 
@@ -88,7 +86,7 @@ describe('excludePlanPositionAsync', () => {
 
   it("retire l'id du tableau quand on réaffiche un poste", async () => {
     const supabase = makeRecordingSupabase(planQueues(['pos-a', 'pos-b', 'pos-c']))
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await excludePlanPositionAsync('plan-1', 'pos-b', false)
 
@@ -98,7 +96,7 @@ describe('excludePlanPositionAsync', () => {
 
   it("crée le tableau à partir de rien quand la colonne vaut null en base", async () => {
     const supabase = makeRecordingSupabase(planQueues(null))
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await excludePlanPositionAsync('plan-1', 'pos-a', true)
 
@@ -112,7 +110,7 @@ describe('excludePlanPositionAsync', () => {
   // de l'argument d'`.update()`, c'est qu'on s'est remis à faire confiance au client.
   it('relit la valeur en base juste avant d’écrire, sans se fier à un état client obsolète', async () => {
     const supabase = makeRecordingSupabase(planQueues(['pos-ajoute-par-un-autre-clic']))
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await excludePlanPositionAsync('plan-1', 'pos-b', true)
 
@@ -126,7 +124,7 @@ describe('excludePlanPositionAsync', () => {
 
   it("ne duplique pas l'id quand on masque un poste déjà masqué (idempotence)", async () => {
     const supabase = makeRecordingSupabase(planQueues(['pos-a', 'pos-b']))
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await excludePlanPositionAsync('plan-1', 'pos-b', true)
 
@@ -136,7 +134,7 @@ describe('excludePlanPositionAsync', () => {
 
   it("laisse le tableau inchangé quand on réaffiche un poste qui n'était pas masqué", async () => {
     const supabase = makeRecordingSupabase(planQueues(['pos-a']))
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await excludePlanPositionAsync('plan-1', 'pos-z', false)
 
@@ -146,7 +144,7 @@ describe('excludePlanPositionAsync', () => {
 
   it('écrit null (et non un tableau vide) quand le dernier poste masqué est réaffiché', async () => {
     const supabase = makeRecordingSupabase(planQueues(['pos-a']))
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await excludePlanPositionAsync('plan-1', 'pos-a', false)
 
@@ -155,7 +153,7 @@ describe('excludePlanPositionAsync', () => {
   })
 
   it('revalide les deux chemins concernés et force le rafraîchissement immédiat en cas de succès', async () => {
-    createAdminClientMock.mockReturnValue(makeRecordingSupabase(planQueues(['pos-a'])))
+    requireChurchMock.mockResolvedValue(ctxWith(makeRecordingSupabase(planQueues(['pos-a']))))
 
     await excludePlanPositionAsync('plan-42', 'pos-b', true)
 
@@ -169,7 +167,7 @@ describe('excludePlanPositionAsync', () => {
     const supabase = makeRecordingSupabase({
       plans: [{ data: null, error: { message: 'select failed' } }],
     })
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await excludePlanPositionAsync('plan-1', 'pos-a', true)
 
@@ -180,11 +178,11 @@ describe('excludePlanPositionAsync', () => {
   })
 
   it("remonte une erreur d'écriture plutôt que de la masquer, sans revalider ni rafraîchir", async () => {
-    createAdminClientMock.mockReturnValue(
+    requireChurchMock.mockResolvedValue(ctxWith(
       makeRecordingSupabase({
         plans: [ok({ excluded_position_ids: ['pos-a'] }), { data: null, error: { message: 'write failed' } }],
       })
-    )
+    ))
 
     const result = await excludePlanPositionAsync('plan-1', 'pos-b', true)
 

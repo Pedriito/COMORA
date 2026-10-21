@@ -1,13 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
 
 export default async function ParametresPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'editor', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
+  await requireChurch('responsable')
 
   return (
     <div className="min-h-screen bg-teal-50">

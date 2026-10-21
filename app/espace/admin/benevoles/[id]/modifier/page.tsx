@@ -1,9 +1,15 @@
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { requireChurch } from '@/lib/auth/church'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { updateBenevoleAdmin } from '../../../actions'
 import { FlashMessage } from '../../../../_components/FlashMessage'
+import { churchRoleLabels, statusLabels } from '@/lib/labels'
+
+const errors: Record<string, string> = {
+  invalid: 'Indique au moins un prénom, et une adresse e-mail valide si elle est renseignée.',
+  last_admin: 'L’église doit garder au moins un administrateur : nomme d’abord un autre administrateur.',
+  failed: 'Les modifications n’ont pas pu être enregistrées. Réessaie.',
+}
 
 export default async function ModifierBenevolePage({
   params,
@@ -15,27 +21,37 @@ export default async function ModifierBenevolePage({
   const { id } = await params
   const { error: flashError } = await searchParams
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('responsable')
+  const churchId = ctx.church.churchId
+  const isAdmin = ctx.church.role === 'admin'
 
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
+  const { data: member } = await ctx.supabase
+    .from('members')
+    .select('id, user_id, first_name, last_name, status')
+    .eq('church_id', churchId)
+    .eq('id', id)
+    .maybeSingle()
 
-  const admin = createAdminClient()
-  const [{ data: profile }, { data: authUser }] = await Promise.all([
-    supabase
-      .from('profiles')
-      .select('first_name, last_name, phone, permission, status, birthdate, city')
-      .eq('id', id)
-      .single(),
-    admin.auth.admin.getUserById(id),
+  if (!member) redirect('/espace/admin')
+
+  const [{ data: contact }, { data: membership }] = await Promise.all([
+    ctx.supabase
+      .from('member_contacts')
+      .select('email, phone, city, birthdate')
+      .eq('church_id', churchId)
+      .eq('member_id', id)
+      .maybeSingle(),
+    member.user_id && isAdmin
+      ? ctx.supabase
+          .from('church_memberships')
+          .select('role, is_pastoral')
+          .eq('church_id', churchId)
+          .eq('user_id', member.user_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ])
 
-  if (!profile) redirect('/espace/admin')
-
-  const p = profile as any
-  const email = authUser?.user?.email ?? ''
+  const p = { ...member, ...contact }
 
   return (
     <div className="min-h-screen bg-teal-50">
@@ -49,35 +65,45 @@ export default async function ModifierBenevolePage({
       </header>
 
       <main className="max-w-xl mx-auto px-6 py-8">
-        {flashError && <FlashMessage message={`Erreur : ${flashError}`} type="error" />}
+        {flashError && <FlashMessage message={errors[flashError] ?? errors.failed} type="error" />}
 
         <div className="bg-white rounded-2xl border border-teal/20 p-6">
           <form action={updateBenevoleAdmin} className="space-y-5">
-            <input type="hidden" name="user_id" value={id} />
+            <input type="hidden" name="member_id" value={id} />
 
             <div className="grid grid-cols-2 gap-4">
               <Field label="Prénom" name="first_name" defaultValue={p.first_name ?? ''} required />
               <Field label="Nom" name="last_name" defaultValue={p.last_name ?? ''} required />
             </div>
 
-            <Field label="Email" name="email" type="email" defaultValue={email} required />
+            <Field label="Email de contact" name="email" type="email" defaultValue={p.email ?? ''} />
             <Field label="Téléphone" name="phone" type="tel" defaultValue={p.phone ?? ''} />
             <Field label="Ville" name="city" defaultValue={p.city ?? ''} />
             <Field label="Date de naissance" name="birthdate" type="date" defaultValue={p.birthdate ?? ''} />
 
-            <div>
-              <label className="block text-sm font-sans text-dark/70 mb-1.5">Niveau d'accès</label>
-              <select
-                name="permission"
-                defaultValue={p.permission ?? 'viewer'}
-                className="w-full px-4 py-2.5 rounded-lg border border-teal/30 bg-teal-50 text-dark focus:outline-none focus:ring-2 focus:ring-teal/40 font-sans text-sm"
-              >
-                <option value="viewer">Lecture seule</option>
-                <option value="editor">Éditeur</option>
-                <option value="admin">Administrateur</option>
-              </select>
-            </div>
+            {membership && (
+              <>
+                <div>
+                  <label className="block text-sm font-sans text-dark/70 mb-1.5">Rôle dans l’église</label>
+                  <select
+                    name="role"
+                    defaultValue={membership.role}
+                    className="w-full px-4 py-2.5 rounded-lg border border-teal/30 bg-teal-50 text-dark focus:outline-none focus:ring-2 focus:ring-teal/40 font-sans text-sm"
+                  >
+                    {Object.entries(churchRoleLabels).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
 
+                <label className="flex items-center gap-2 font-sans text-sm text-dark/70">
+                  <input type="checkbox" name="is_pastoral" defaultChecked={membership.is_pastoral} className="accent-teal w-4 h-4" />
+                  Accès à la pastorale
+                </label>
+              </>
+            )}
+
+            {isAdmin && (
             <div>
               <label className="block text-sm font-sans text-dark/70 mb-1.5">Statut</label>
               <select
@@ -85,11 +111,12 @@ export default async function ModifierBenevolePage({
                 defaultValue={p.status ?? 'active'}
                 className="w-full px-4 py-2.5 rounded-lg border border-teal/30 bg-teal-50 text-dark focus:outline-none focus:ring-2 focus:ring-teal/40 font-sans text-sm"
               >
-                <option value="active">Actif</option>
-                <option value="invited">Invitation envoyée</option>
-                <option value="inactive">Inactif</option>
+                {Object.entries(statusLabels).map(([value, { label }]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
               </select>
             </div>
+            )}
 
             <div className="flex gap-3 pt-2">
               <button

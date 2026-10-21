@@ -7,7 +7,7 @@ import { addAssignmentAsync } from './actions'
 type Props = {
   planId: string
   teamId: string
-  userId: string
+  memberId: string
   positionId: string | null
   className?: string
   children: React.ReactNode
@@ -16,7 +16,7 @@ type Props = {
 
 /** Bouton « Assigner » — appelle l'action directement (pas de <form>/redirect),
  *  feedback immédiat puis rafraîchit la vue en arrière-plan. */
-export function AssignVolunteerButton({ planId, teamId, userId, positionId, className, children, onAssigned }: Props) {
+export function AssignVolunteerButton({ planId, teamId, memberId, positionId, className, children, onAssigned }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -30,7 +30,7 @@ export function AssignVolunteerButton({ planId, teamId, userId, positionId, clas
           setError(null)
           startTransition(async () => {
             try {
-              const result = await addAssignmentAsync({ planId, teamId, userId, positionId })
+              const result = await addAssignmentAsync({ planId, teamId, memberId, positionId })
               if (result.ok) {
                 onAssigned?.()
                 router.refresh()

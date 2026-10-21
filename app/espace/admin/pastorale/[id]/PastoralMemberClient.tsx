@@ -20,8 +20,8 @@ const STATUS_COLORS: Record<string, string> = {
   confirmed: 'text-green-600', declined: 'text-red-400', pending: 'text-amber-500',
 }
 
-export function PastoralMemberClient({ profileId, profile, prayerRequests: initialPrayers, pastoralNotes: initialNotes, assignments }: {
-  profileId: string
+export function PastoralMemberClient({ memberId, profile, prayerRequests: initialPrayers, pastoralNotes: initialNotes, assignments }: {
+  memberId: string
   profile: Profile
   prayerRequests: PrayerRequest[]
   pastoralNotes: PastoralNote[]
@@ -40,7 +40,7 @@ export function PastoralMemberClient({ profileId, profile, prayerRequests: initi
   function handleAddNote(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault(); setNoteError(null)
     const fd = new FormData(e.currentTarget)
-    fd.set('profile_id', profileId)
+    fd.set('member_id', memberId)
     start(async () => {
       const res = await addPastoralNote(fd)
       if (res.ok) {
@@ -53,7 +53,7 @@ export function PastoralMemberClient({ profileId, profile, prayerRequests: initi
   function handleAddPrayer(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault(); setPrayerError(null)
     const fd = new FormData(e.currentTarget)
-    fd.set('profile_id', profileId)
+    fd.set('member_id', memberId)
     start(async () => {
       const res = await addPrayerRequest(fd)
       if (res.ok) {

@@ -1,4 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
+import { requireChurch, grants } from '@/lib/auth/church'
+import { churchTimeZone } from '../notifyTeamLeaders'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { deletePlan, sendSingleInvitation } from '../actions'
@@ -11,7 +12,7 @@ import AnnoncesSection from './AnnoncesSection'
 import SermonSection from './SermonSection'
 import VideoSection from './VideoSection'
 import ShareButton from './ShareButton'
-import { getPlanDetail, INVITE_EXT_ID } from '../getPlanDetail'
+import { getPlanDetail } from '../getPlanDetail'
 import { PlanWorkspace } from '../PlanWorkspace'
 import { MyAssignmentPanel } from '../RespondAssignmentButtons'
 import { RemoveAssignmentButton } from '../RemoveAssignmentButton'
@@ -43,17 +44,20 @@ export default async function PlanDetailPage({
   const { id } = await params
   const { error: flashError, sent: flashSent, fill: fillParam } = await searchParams
   const fillKey = fillParam ?? null
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('membre')
+  const { supabase } = ctx
+  const memberId = ctx.memberId
 
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
+  const isAdmin   = ctx.church.role === 'admin'
+  const canManage = grants(ctx.church, 'responsable')
 
-  const isAdmin   = ['admin', 'super_admin'].includes(me?.permission ?? '')
-  const isEditor  = me?.permission === 'editor'
-  const canManage = isAdmin || isEditor
-
-  const detail = await getPlanDetail(supabase, id, user.id, isAdmin)
+  const timeZone = await churchTimeZone(supabase, ctx.church.churchId)
+  const detail = await getPlanDetail(supabase, id, {
+    churchId: ctx.church.churchId,
+    memberId,
+    canManage,
+    timeZone,
+  })
   if (!detail) redirect('/espace/admin/plans')
 
   const {
@@ -63,12 +67,12 @@ export default async function PlanDetailPage({
   } = detail
 
   const allAssignments = [...teams.flatMap(t => t.assignments), ...noTeamAssignments]
-  const myAssignment = allAssignments.find(a => a.user_id === user.id) ?? null
+  const myAssignment = allAssignments.find(a => memberId !== null && a.member_id === memberId) ?? null
 
   const dateObj  = new Date(plan.service_date)
-  const dateLong = dateObj.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const dateMed  = dateObj.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
-  const time     = dateObj.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const dateLong = dateObj.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone })
+  const dateMed  = dateObj.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone })
+  const time     = dateObj.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone })
   const typeLabel = PLAN_TYPE_LABELS[plan.plan_type ?? ''] ?? 'Événement'
 
   const visibleTeams = teams.filter(t => t.visible)
@@ -210,7 +214,7 @@ export default async function PlanDetailPage({
                 const dmInstruments = team.positions.filter(p => DM_SOURCE_POSITIONS.includes(p.name))
                 const showDmSelector = !!dmPosition && dmInstruments.length > 0
 
-                const isMember = team.isMyTeam || team.assignments.some(a => a.user_id === user.id)
+                const isMember = team.isMyTeam || team.assignments.some(a => memberId !== null && a.member_id === memberId)
 
                 return (
                   <MobileTeamBlock
@@ -228,11 +232,11 @@ export default async function PlanDetailPage({
                     }
                   >
                       {team.assignments.map(a => {
-                        const isMe     = a.user_id === user.id
-                        const isInvite = a.user_id === INVITE_EXT_ID
+                        const isMe     = memberId !== null && a.member_id === memberId
+                        const isInvite = a.member_id === null
                         const name = isInvite
                           ? (a.external_name ?? 'Invité')
-                          : `${a.profiles?.first_name ?? ''} ${a.profiles?.last_name ?? ''}`
+                          : `${a.members?.first_name ?? ''} ${a.members?.last_name ?? ''}`
                         const canSendInvite = isInvite ? !!a.external_email : a.status === 'pending'
                         return (
                           <div key={a.id} className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 ${isMe ? 'bg-teal/10' : 'bg-teal/5'}`}>
@@ -358,7 +362,7 @@ export default async function PlanDetailPage({
                   <div key={a.id} className="px-4 py-3 flex items-center gap-3">
                     <StatusDot status={a.status} />
                     <p className="font-sans text-sm text-dark font-medium flex-1 min-w-0 truncate">
-                      {a.profiles?.first_name} {a.profiles?.last_name}
+                      {a.members?.first_name} {a.members?.last_name}
                     </p>
                     {canManage && (
                       <RemoveAssignmentButton
@@ -396,7 +400,7 @@ export default async function PlanDetailPage({
             <PlanWorkspace
               planId={id}
               detail={detail}
-              userId={user.id}
+              memberId={memberId}
               isAdmin={isAdmin}
               flashError={flashError ?? undefined}
               flashSent={flashSent ?? undefined}

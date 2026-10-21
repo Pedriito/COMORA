@@ -31,19 +31,18 @@ export async function GET(request: NextRequest) {
       if (type === 'recovery' || type === 'invite') {
         return NextResponse.redirect(`${origin}/espace/set-password`)
       }
-      // Fallback : vérifie le statut du profil (cas où type n'est pas dans l'URL)
+      // Compte sans église active : page d'attente
       const userId = sessionData.session?.user?.id
-      if (userId) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('status')
-          .eq('id', userId)
-          .single()
-        if (profile?.status === 'invited') {
-          return NextResponse.redirect(`${origin}/espace/set-password`)
-        }
-      }
-      return NextResponse.redirect(`${origin}/espace/dashboard`)
+      const { data: membership } = userId
+        ? await supabase
+            .from('church_memberships')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('status', 'active')
+            .limit(1)
+            .maybeSingle()
+        : { data: null }
+      return NextResponse.redirect(`${origin}${membership ? '/espace/dashboard' : '/espace/sans-eglise'}`)
     }
   }
 

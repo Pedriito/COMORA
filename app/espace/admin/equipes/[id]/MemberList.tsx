@@ -6,10 +6,10 @@ import { frequencyLabels } from '@/lib/labels'
 
 type Position = { id: string; name: string }
 type Member = {
-  user_id: string
+  member_id: string
   role: string
   frequency: string | null
-  profiles: { id: string; first_name: string; last_name: string } | null
+  members: { id: string; first_name: string; last_name: string } | null
 }
 
 export function MemberList({
@@ -30,7 +30,7 @@ export function MemberList({
   const [query, setQuery] = useState('')
 
   const filtered = useMemo(() => members.filter(m => {
-    const full = `${m.profiles?.first_name ?? ''} ${m.profiles?.last_name ?? ''}`.toLowerCase()
+    const full = `${m.members?.first_name ?? ''} ${m.members?.last_name ?? ''}`.toLowerCase()
     return full.includes(query.toLowerCase())
   }), [members, query])
 
@@ -48,19 +48,19 @@ export function MemberList({
 
       <div className="bg-white rounded-2xl border border-teal/20 overflow-hidden divide-y divide-teal/10">
         {filtered.length > 0 ? filtered.map(m => {
-          const posIds = memberPositions[m.user_id] ?? new Set()
+          const posIds = memberPositions[m.member_id] ?? new Set()
           return (
-            <div key={m.user_id} className="px-6 py-4">
+            <div key={m.member_id} className="px-6 py-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <span className="font-sans text-sm text-dark font-medium">
-                      {m.profiles?.first_name} {m.profiles?.last_name}
+                      {m.members?.first_name} {m.members?.last_name}
                     </span>
                     {canEditRoles ? (
                       <form action={updateMemberRole}>
                         <input type="hidden" name="team_id" value={teamId} />
-                        <input type="hidden" name="user_id" value={m.user_id} />
+                        <input type="hidden" name="member_id" value={m.member_id} />
                         <input type="hidden" name="role" value={m.role === 'leader' ? 'member' : 'leader'} />
                         <button
                           type="submit"
@@ -96,7 +96,7 @@ export function MemberList({
                         return (
                           <form key={pos.id} action={toggleMemberPosition}>
                             <input type="hidden" name="team_id" value={teamId} />
-                            <input type="hidden" name="user_id" value={m.user_id} />
+                            <input type="hidden" name="member_id" value={m.member_id} />
                             <input type="hidden" name="position_id" value={pos.id} />
                             <input type="hidden" name="action" value={hasPos ? 'remove' : 'add'} />
                             <button type="submit"
@@ -115,7 +115,7 @@ export function MemberList({
                 {!readOnly && (
                   <form action={removeTeamMember}>
                     <input type="hidden" name="team_id" value={teamId} />
-                    <input type="hidden" name="user_id" value={m.user_id} />
+                    <input type="hidden" name="member_id" value={m.member_id} />
                     <button type="submit" className="text-xs text-dark/30 hover:text-red-400 transition-colors font-sans">
                       Retirer
                     </button>

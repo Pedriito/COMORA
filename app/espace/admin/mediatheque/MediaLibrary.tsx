@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
-import { deleteMediaFile, searchUnsplash, importUnsplashPhoto } from './actions'
+import { deleteMediaFile, searchUnsplash, importUnsplashPhoto, prepareMediaUpload, registerMediaFile } from './actions'
 import type { UnsplashPhoto, MediaFile } from './actions'
 
 type Props = { initial: MediaFile[] }
@@ -43,33 +43,30 @@ export default function MediaLibrary({ initial }: Props) {
     const supabase = createClient()
 
     for (const file of images) {
-      const safeName = file.name.replace(/\s+/g, '_')
-      const path = `${Date.now()}-${safeName}`
+      // Chemin et type contrôlés côté serveur (dossier de l'église, nom aléatoire)
+      const prepared = await prepareMediaUpload(file.type)
+      if ('error' in prepared) {
+        setUploadError(prepared.error)
+        continue
+      }
+      const path = prepared.path
 
       const { error: storageError } = await supabase.storage
-        .from('media')
-        .upload(path, file)
+        .from(prepared.bucket)
+        .upload(path, file, { contentType: file.type })
 
       if (storageError) {
         setUploadError(`Erreur lors de l'upload de ${file.name} : ${storageError.message}`)
         continue
       }
 
-      const { data: urlData } = supabase.storage.from('media').getPublicUrl(path)
-      const publicUrl = urlData.publicUrl
-
-      const { data: inserted, error: dbError } = await supabase
-        .from('media_files')
-        .insert({ name: file.name, type: 'image', storage_path: path, url: publicUrl })
-        .select('id, name, url, created_at')
-        .single()
-
-      if (dbError) {
-        setUploadError(`Fichier uploadé mais erreur en base : ${dbError.message}`)
+      const inserted = await registerMediaFile(path, file.name)
+      if ('error' in inserted) {
+        setUploadError(`Fichier uploadé mais erreur en base : ${inserted.error}`)
         continue
       }
 
-      if (inserted) setFiles((prev) => [inserted as MediaFile, ...prev])
+      setFiles((prev) => [inserted, ...prev])
     }
 
     setUploading(false)
@@ -85,7 +82,7 @@ export default function MediaLibrary({ initial }: Props) {
   }
 
   async function handleDelete(file: MediaFile) {
-    await deleteMediaFile(file.id, file.url)
+    await deleteMediaFile(file.id)
     setFiles((prev) => prev.filter((f) => f.id !== file.id))
   }
 
@@ -110,7 +107,7 @@ export default function MediaLibrary({ initial }: Props) {
   async function handleImport(photo: UnsplashPhoto) {
     setImporting(photo.id)
     try {
-      const newFile = await importUnsplashPhoto(photo)
+      const newFile = await importUnsplashPhoto(photo.id)
       setFiles((prev) => [newFile, ...prev])
       setImportedIds((prev) => new Set([...prev, photo.id]))
     } catch (err) {

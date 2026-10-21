@@ -39,14 +39,7 @@ export async function setPassword(formData: FormData) {
     redirect('/espace/set-password?error=failed')
   }
 
-  // Met le statut à actif
-  const { data: { user } } = await supabase.auth.getUser()
-  if (user) {
-    await supabase
-      .from('profiles')
-      .update({ status: 'active' })
-      .eq('id', user.id)
-  }
-
-  redirect('/espace/profil')
+  // Le passage « invité → actif » a eu lieu à l'activation du lien ;
+  // le profil redirige vers /espace/sans-eglise si le compte n'a aucune église active.
+  redirect('/espace/profil?from=activation')
 }

@@ -1,7 +1,5 @@
 import { Suspense } from 'react'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { redirect } from 'next/navigation'
+import { requireChurch, grants } from '@/lib/auth/church'
 import Link from 'next/link'
 import { PlanCalendarLazy as PlanCalendar } from './PlanCalendarLazy'
 import { PlanTimeEditor } from './PlanTimeEditor'
@@ -12,7 +10,8 @@ import { PlanWorkspaceData } from './PlanWorkspaceData'
 import { WorkspaceSkeleton } from './WorkspaceSkeleton'
 import { MyAssignmentQuickActions } from './RespondAssignmentButtons'
 import { AutoFillButton } from './AutoFillButton'
-import { siteUrl as getSiteUrl } from '@/lib/site'
+import { churchTimeZone } from './notifyTeamLeaders'
+import { resolveTimeZone } from '@/lib/timezone'
 
 export type PlanItem = {
   id: string
@@ -27,57 +26,66 @@ export default async function PlansPage({
 }: {
   searchParams: Promise<{ view?: string; month?: string; plan?: string; fill?: string; sent?: string; error?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('membre')
+  const { supabase } = ctx
+  const churchId = ctx.church.churchId
 
   const params = await searchParams
   const view   = params.view === 'calendar' ? 'calendar' : 'list'
   const now    = new Date().toISOString()
 
-  // me + upcoming + calToken en parallèle (tous indépendants après auth)
-  const admin = createAdminClient()
-  const [{ data: me }, { data: upcoming }, { data: calSettings }] = await Promise.all([
-    supabase.from('profiles').select('permission').eq('id', user.id).single(),
+  const isAdmin   = ctx.church.role === 'admin'
+  const canManage = grants(ctx.church, 'responsable')
+
+  const [timeZone, { data: upcoming }, { data: feed }] = await Promise.all([
+    churchTimeZone(supabase, churchId),
     supabase
       .from('plans')
       .select('id, title, service_date, plan_type, teams(name)')
+      .eq('church_id', churchId)
       .gte('service_date', now)
       .order('service_date'),
-    admin.from('projection_settings').select('calendar_token').single(),
+    // Lien d'abonnement actif du compte (le jeton n'est jamais relisible : seule son existence compte)
+    supabase
+      .from('calendar_feeds')
+      .select('id')
+      .eq('church_id', churchId)
+      .eq('user_id', ctx.userId)
+      .is('revoked_at', null)
+      .limit(1)
+      .maybeSingle(),
   ])
-
-  const isAdmin   = ['admin', 'super_admin'].includes(me?.permission ?? '')
-  const isEditor  = me?.permission === 'editor'
-  const canManage = isAdmin || isEditor
 
   // past dépend de canManage et view → séquentiel mais sur une seule requête
   const { data: past } = await (canManage
     ? supabase
         .from('plans')
         .select('id, title, service_date, plan_type, teams(name)')
+        .eq('church_id', churchId)
         .lt('service_date', now)
         .order('service_date', { ascending: false })
         .limit(view === 'calendar' ? 60 : 10)
     : Promise.resolve({ data: [] as PlanItem[] }))
 
-  const upcomingPlans = (upcoming ?? []) as PlanItem[]
-  const pastPlans = (past ?? []) as PlanItem[]
+  const upcomingPlans = (upcoming ?? []) as unknown as PlanItem[]
+  const pastPlans = (past ?? []) as unknown as PlanItem[]
   const allPlans = [...upcomingPlans, ...pastPlans]
 
   // Compte affectations (liste + agenda du calendrier)
   const countByPlan: Record<string, number> = {}
   const allIds = allPlans.map(p => p.id)
   const [{ data: counts }, { data: myAssignments }] = await Promise.all([
-    supabase
-      .from('plan_assignments')
-      .select('plan_id')
-      .in('plan_id', allIds.length ? allIds : ['']),
-    supabase
-      .from('plan_assignments')
-      .select('id, plan_id, status')
-      .eq('user_id', user.id)
-      .in('plan_id', allIds.length ? allIds : ['']),
+    allIds.length
+      ? supabase.from('plan_assignments').select('plan_id').eq('church_id', churchId).in('plan_id', allIds)
+      : Promise.resolve({ data: [] as { plan_id: string }[] }),
+    allIds.length && ctx.memberId
+      ? supabase
+          .from('plan_assignments')
+          .select('id, plan_id, status')
+          .eq('church_id', churchId)
+          .eq('member_id', ctx.memberId)
+          .in('plan_id', allIds)
+      : Promise.resolve({ data: [] as { id: string; plan_id: string; status: string }[] }),
   ])
   counts?.forEach(c => { countByPlan[c.plan_id] = (countByPlan[c.plan_id] ?? 0) + 1 })
   type MyAssignment = { id: string; plan_id: string; status: string }
@@ -85,15 +93,8 @@ export default async function PlansPage({
     (myAssignments ?? []).map(a => [a.plan_id, a as MyAssignment])
   )
 
-  // Token iCal (récupéré dans le Promise.all ci-dessus)
-  let calToken = calSettings?.calendar_token as string | null
-  if (!calToken) {
-    calToken = crypto.randomUUID()
-    await admin.from('projection_settings').update({ calendar_token: calToken }).not('id', 'is', null)
-  }
-
-  const siteUrl = getSiteUrl()
-  const icalUrl = `${siteUrl}/api/calendar/${calToken}.ics`
+  const hasCalendarFeed = !!feed
+  const tz = resolveTimeZone(timeZone)
 
   // ── Workspace desktop unifié (≥ xl, admin/editor, vue liste) ──────────
   const selectedPlanId = view === 'list'
@@ -104,9 +105,9 @@ export default async function PlansPage({
   function PlanRow({ plan }: { plan: PlanItem }) {
     const team = plan.teams as unknown as { name: string } | null
     const date = new Date(plan.service_date).toLocaleDateString('fr-FR', {
-      weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+      weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: tz,
     })
-    const time = new Date(plan.service_date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    const time = new Date(plan.service_date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: tz })
     const n    = countByPlan[plan.id] ?? 0
     const past = plan.service_date < now
     return (
@@ -118,6 +119,7 @@ export default async function PlansPage({
               <PlanTimeEditor
                 planId={plan.id}
                 serviceDate={plan.service_date}
+                timeZone={tz}
                 stopPropagation
                 className="font-sans text-xs tabular-nums text-dark/35 hover:text-teal transition-colors cursor-pointer hover:underline decoration-dotted"
               />
@@ -149,9 +151,9 @@ export default async function PlansPage({
   function PlanCard({ plan, myAssignment }: { plan: PlanItem; myAssignment: { id: string; status: string } | null }) {
     const team = plan.teams as unknown as { name: string } | null
     const date = new Date(plan.service_date).toLocaleDateString('fr-FR', {
-      weekday: 'short', day: 'numeric', month: 'short',
+      weekday: 'short', day: 'numeric', month: 'short', timeZone: tz,
     })
-    const time = new Date(plan.service_date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    const time = new Date(plan.service_date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: tz })
     const n         = countByPlan[plan.id] ?? 0
     const past      = plan.service_date < now
     return (
@@ -251,7 +253,7 @@ export default async function PlansPage({
 
         {canManage && (
           <div className="flex justify-center">
-            <SubscribeCalendarButton icalUrl={icalUrl} />
+            <SubscribeCalendarButton hasFeed={hasCalendarFeed} />
           </div>
         )}
       </div>
@@ -316,7 +318,7 @@ export default async function PlansPage({
       <main className="px-4 md:px-6 py-6 md:py-8">
         {view === 'calendar' ? (
           <div className="max-w-5xl mx-auto">
-            <PlanCalendar plans={allPlans} monthParam={params.month} icalUrl={icalUrl} canManage={canManage} countByPlan={countByPlan} />
+            <PlanCalendar plans={allPlans} monthParam={params.month} hasCalendarFeed={hasCalendarFeed} canManage={canManage} countByPlan={countByPlan} />
           </div>
         ) : canManage && selectedPlanId ? (
           <>
@@ -325,7 +327,6 @@ export default async function PlansPage({
               <Suspense key={selectedPlanId} fallback={<WorkspaceSkeleton />}>
                 <PlanWorkspaceData
                   selectedPlanId={selectedPlanId}
-                  userId={user.id}
                   isAdmin={isAdmin}
                   plans={upcomingPlans}
                   pastPlans={pastPlans}

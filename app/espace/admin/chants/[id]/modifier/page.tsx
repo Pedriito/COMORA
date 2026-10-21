@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { SongForm } from '../../SongForm'
 
@@ -10,21 +10,17 @@ export default async function ModifierChantPage({
   params: Promise<{ id: string }>
   searchParams: Promise<{ error?: string; saved?: string; created?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'editor', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
+  const { supabase, church } = await requireChurch('responsable')
 
-  const { id } = await params
-  const songId = parseInt(id, 10)
+  const { id: songId } = await params
   const { error, saved, created } = await searchParams
 
   const { data: song } = await supabase
     .from('songs')
     .select('id, title, arrangements(id, name, chord_chart, chord_chart_key, youtube_url, audio_url)')
     .eq('id', songId)
-    .single()
+    .eq('church_id', church.churchId)
+    .maybeSingle()
 
   if (!song) notFound()
 

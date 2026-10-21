@@ -4,21 +4,18 @@ import { ok, makeFakeSupabase, type FakeResponse } from '@/tests/helpers/fakeSup
 const {
   redirectMock,
   revalidatePathMock,
-  createClientMock,
-  createAdminClientMock,
+  requireChurchMock,
   sendPushToUserMock,
 } = vi.hoisted(() => ({
   redirectMock: vi.fn((url: string) => { throw new Error(`NEXT_REDIRECT:${url}`) }),
   revalidatePathMock: vi.fn(),
-  createClientMock: vi.fn(),
-  createAdminClientMock: vi.fn(),
+  requireChurchMock: vi.fn(),
   sendPushToUserMock: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ redirect: redirectMock }))
 vi.mock('next/cache', () => ({ revalidatePath: revalidatePathMock }))
-vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
-vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: createAdminClientMock }))
+vi.mock('@/lib/auth/church', () => ({ requireChurch: requireChurchMock }))
 vi.mock('@/lib/pushNotifications', () => ({
   sendPushToUser: sendPushToUserMock,
   sendPushToUsers: vi.fn(),
@@ -27,16 +24,9 @@ vi.mock('@/lib/pushNotifications', () => ({
 const { commitAutoFillProposal } = await import('./commitAutoFill')
 type CommitRow = Parameters<typeof commitAutoFillProposal>[0][number]
 
-/** Client "cookie" utilisé par `requireAdmin()` : auth.getUser() + vérification de permission. */
-function fakeSessionClient(permission = 'admin') {
-  return {
-    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'admin-1' } } }) },
-    from: () => ({
-      select: () => ({
-        eq: () => ({ single: () => Promise.resolve({ data: { permission, church_id: 'church-1' } }) }),
-      }),
-    }),
-  }
+/** Contexte d'église simulé : le client de session est le faux Supabase du test. */
+function ctxWith(supabase: unknown) {
+  return { supabase, userId: 'admin-1', memberId: 'member-1', church: { churchId: 'church-1', role: 'responsable', isPastoral: false } }
 }
 
 type InsertedPayload = Record<string, unknown> | Record<string, unknown>[]
@@ -83,28 +73,33 @@ function assignmentQueues(
   existing: { plan_id: string; position_id: string }[],
   insertResponse: FakeResponse = ok(null),
 ): Record<string, FakeResponse[]> {
-  return { plan_assignments: [ok(existing), insertResponse] }
+  const memberIds = ['user-1', 'user-2', 'user-3', 'user-9']
+  return {
+    plan_assignments: [ok(existing), insertResponse],
+    // Personnes affectées : chacune a un compte `acc-<id>` (destinataire des notifications)
+    members: [ok(memberIds.map(id => ({ id, user_id: `acc-${id}` })))],
+    churches: [ok({ timezone: 'Europe/Paris' })],
+  }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  createClientMock.mockResolvedValue(fakeSessionClient())
   sendPushToUserMock.mockResolvedValue(undefined)
 })
 
 describe('commitAutoFillProposal — permission', () => {
-  it('redirige si le compte connecté ne peut pas gérer le planning', async () => {
-    createClientMock.mockResolvedValue(fakeSessionClient('member'))
-    createAdminClientMock.mockReturnValue(makeRecordingSupabase({}))
+  it('exige le rôle responsable, et ne fait rien si requireChurch redirige', async () => {
+    requireChurchMock.mockRejectedValue(new Error('NEXT_REDIRECT:/espace/dashboard'))
 
     await expect(commitAutoFillProposal([row()])).rejects.toThrow('NEXT_REDIRECT')
+    expect(requireChurchMock).toHaveBeenCalledWith('responsable')
   })
 })
 
 describe('commitAutoFillProposal — insertion groupée', () => {
   it('insère toutes les lignes validées en une seule requête (un tableau, pas une boucle)', async () => {
     const supabase = makeRecordingSupabase(assignmentQueues([]))
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await commitAutoFillProposal([
       row(),
@@ -120,13 +115,14 @@ describe('commitAutoFillProposal — insertion groupée', () => {
 
   it('mappe chaque ligne vers les colonnes de `plan_assignments`, en statut « pending »', async () => {
     const supabase = makeRecordingSupabase(assignmentQueues([]))
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     await commitAutoFillProposal([row()])
 
     expect(supabase.inserts[0].payload).toEqual([{
+      church_id: 'church-1',
       plan_id: 'plan-1',
-      user_id: 'user-1',
+      member_id: 'user-1',
       position_id: 'pos-1',
       team_id: 'team-1',
       status: 'pending',
@@ -134,7 +130,7 @@ describe('commitAutoFillProposal — insertion groupée', () => {
   })
 
   it('revalide la liste des plans et chaque plan concerné après une insertion réussie', async () => {
-    createAdminClientMock.mockReturnValue(makeRecordingSupabase(assignmentQueues([])))
+    requireChurchMock.mockResolvedValue(ctxWith(makeRecordingSupabase(assignmentQueues([]))))
 
     await commitAutoFillProposal([row(), row({ planId: 'plan-2', positionId: 'pos-2', userId: 'user-2' })])
 
@@ -151,7 +147,7 @@ describe('commitAutoFillProposal — garde anti-doublon', () => {
     const supabase = makeRecordingSupabase(
       assignmentQueues([{ plan_id: 'plan-1', position_id: 'pos-1' }])
     )
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await commitAutoFillProposal([
       row(),
@@ -160,7 +156,7 @@ describe('commitAutoFillProposal — garde anti-doublon', () => {
 
     expect(result).toEqual({ ok: true, inserted: 1, skipped: 1 })
     expect(supabase.inserts[0].payload).toEqual([
-      expect.objectContaining({ position_id: 'pos-2', user_id: 'user-2' }),
+      expect.objectContaining({ position_id: 'pos-2', member_id: 'user-2' }),
     ])
   })
 
@@ -168,7 +164,7 @@ describe('commitAutoFillProposal — garde anti-doublon', () => {
     const supabase = makeRecordingSupabase(
       assignmentQueues([{ plan_id: 'plan-1', position_id: 'pos-1' }])
     )
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await commitAutoFillProposal([row({ planId: 'plan-2' })])
 
@@ -182,13 +178,13 @@ describe('commitAutoFillProposal — garde anti-doublon', () => {
     const supabase = makeRecordingSupabase(
       assignmentQueues([{ plan_id: 'plan-1', position_id: 'pos-1' }])
     )
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await commitAutoFillProposal([row({ allowMultiple: true, userId: 'user-9' })])
 
     expect(result).toEqual({ ok: true, inserted: 1, skipped: 0 })
     expect(supabase.inserts[0].payload).toEqual([
-      expect.objectContaining({ position_id: 'pos-1', user_id: 'user-9' }),
+      expect.objectContaining({ position_id: 'pos-1', member_id: 'user-9' }),
     ])
   })
 
@@ -199,7 +195,7 @@ describe('commitAutoFillProposal — garde anti-doublon', () => {
         { plan_id: 'plan-1', position_id: 'pos-2' },
       ])
     )
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await commitAutoFillProposal([
       row(),
@@ -217,7 +213,7 @@ describe('commitAutoFillProposal — remontée des erreurs', () => {
     const supabase = makeRecordingSupabase(
       assignmentQueues([], { data: null, error: { message: 'duplicate key value violates unique constraint' } })
     )
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await commitAutoFillProposal([row()])
 
@@ -225,9 +221,9 @@ describe('commitAutoFillProposal — remontée des erreurs', () => {
   })
 
   it("n'envoie aucune notification et ne revalide rien quand l'insertion échoue", async () => {
-    createAdminClientMock.mockReturnValue(
+    requireChurchMock.mockResolvedValue(ctxWith(
       makeRecordingSupabase(assignmentQueues([], { data: null, error: { message: 'timeout' } }))
-    )
+    ))
 
     await commitAutoFillProposal([row()])
 
@@ -238,9 +234,9 @@ describe('commitAutoFillProposal — remontée des erreurs', () => {
 
 describe('commitAutoFillProposal — notifications push (bonus non bloquant)', () => {
   it('notifie chaque bénévole nouvellement affecté, et seulement lui', async () => {
-    createAdminClientMock.mockReturnValue(
+    requireChurchMock.mockResolvedValue(ctxWith(
       makeRecordingSupabase(assignmentQueues([{ plan_id: 'plan-1', position_id: 'pos-1' }]))
-    )
+    ))
 
     await commitAutoFillProposal([
       row(), // pourvu entre-temps : pas de notification
@@ -248,7 +244,7 @@ describe('commitAutoFillProposal — notifications push (bonus non bloquant)', (
     ])
 
     expect(sendPushToUserMock).toHaveBeenCalledTimes(1)
-    expect(sendPushToUserMock).toHaveBeenCalledWith('user-2', expect.objectContaining({
+    expect(sendPushToUserMock).toHaveBeenCalledWith('acc-user-2', expect.objectContaining({
       body: expect.stringContaining('Batterie'),
       url: '/espace/historique',
       tag: 'assignment-plan-1',
@@ -256,7 +252,7 @@ describe('commitAutoFillProposal — notifications push (bonus non bloquant)', (
   })
 
   it("un échec d'envoi de notification ne fait pas échouer l'action (Promise.allSettled)", async () => {
-    createAdminClientMock.mockReturnValue(makeRecordingSupabase(assignmentQueues([])))
+    requireChurchMock.mockResolvedValue(ctxWith(makeRecordingSupabase(assignmentQueues([]))))
     sendPushToUserMock.mockRejectedValue(new Error('push service unavailable'))
 
     const result = await commitAutoFillProposal([
@@ -270,7 +266,7 @@ describe('commitAutoFillProposal — notifications push (bonus non bloquant)', (
   })
 
   it("un seul échec parmi plusieurs envois n'empêche pas les autres", async () => {
-    createAdminClientMock.mockReturnValue(makeRecordingSupabase(assignmentQueues([])))
+    requireChurchMock.mockResolvedValue(ctxWith(makeRecordingSupabase(assignmentQueues([]))))
     sendPushToUserMock
       .mockRejectedValueOnce(new Error('endpoint expiré'))
       .mockResolvedValueOnce(undefined)
@@ -281,14 +277,14 @@ describe('commitAutoFillProposal — notifications push (bonus non bloquant)', (
     ])
 
     expect(result.ok).toBe(true)
-    expect(sendPushToUserMock.mock.calls.map(c => c[0])).toEqual(['user-1', 'user-2'])
+    expect(sendPushToUserMock.mock.calls.map(c => c[0])).toEqual(['acc-user-1', 'acc-user-2'])
   })
 })
 
 describe('commitAutoFillProposal — cas limite', () => {
   it("ne déclenche aucune écriture ni lecture quand la liste d'entrée est vide", async () => {
     const supabase = makeRecordingSupabase({})
-    createAdminClientMock.mockReturnValue(supabase)
+    requireChurchMock.mockResolvedValue(ctxWith(supabase))
 
     const result = await commitAutoFillProposal([])
 

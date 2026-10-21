@@ -33,10 +33,3 @@ export const statusLabels: Record<string, { label: string; color: string }> = {
   invited:  { label: 'Invitation envoyée',   color: 'bg-amber-100 text-amber-700' },
   inactive: { label: 'Inactif',             color: 'bg-gray-100 text-gray-500' },
 }
-
-/** @deprecated Anciennes permissions (profiles.permission), retirées avec la réécriture de l'espace. */
-export const permissionLabels: Record<string, string> = {
-  admin:  'Administrateur',
-  editor: 'Coordinateur',
-  viewer: 'Membre',
-}

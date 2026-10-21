@@ -1,21 +1,33 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { requireChurch } from '@/lib/auth/church'
+import { resolveTimeZone, utcToLocalParts } from '@/lib/timezone'
 import { respondAssignmentOnHistorique } from '../admin/plans/actions'
 import { assignmentStatusLabels } from '@/lib/labels'
 
 export default async function HistoriquePage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('membre')
+  const { supabase, memberId } = ctx
+  const churchId = ctx.church.churchId
 
-  const [{ data: profile }, { data: rawAssignments }] = await Promise.all([
-    supabase.from('profiles').select('first_name, last_name').eq('id', user.id).single(),
-    supabase
-      .from('plan_assignments')
-      .select('id, status, plans(id, title, service_date), positions(name), teams(name)')
-      .eq('user_id', user.id),
+  const empty = Promise.resolve({ data: null })
+  const [{ data: church }, { data: account }, { data: member }, { data: rawAssignments }] = await Promise.all([
+    supabase.from('churches').select('timezone').eq('id', churchId).maybeSingle(),
+    supabase.from('profiles').select('first_name, last_name').eq('id', ctx.userId).maybeSingle(),
+    memberId
+      ? supabase.from('members').select('first_name, last_name').eq('id', memberId).eq('church_id', churchId).maybeSingle()
+      : empty,
+    memberId
+      ? supabase
+          .from('plan_assignments')
+          .select('id, status, plans(id, title, service_date), positions(name), teams(name)')
+          .eq('church_id', churchId)
+          .eq('member_id', memberId)
+      : empty,
   ])
+
+  // Dates et heures affichées dans le fuseau de l'église
+  const timeZone = resolveTimeZone(church?.timezone)
+  const profile = member ?? account
 
   const now = new Date()
 
@@ -35,7 +47,7 @@ export default async function HistoriquePage() {
   const taux      = total > 0 ? Math.round((confirmed / total) * 100) : 0
 
   const fmtShort = (iso: string, opts: Intl.DateTimeFormatOptions) =>
-    new Date(iso).toLocaleDateString('fr-FR', opts).replace('.', '').toUpperCase()
+    new Date(iso).toLocaleDateString('fr-FR', { ...opts, timeZone }).replace('.', '').toUpperCase()
 
   const statusBadge = (status: string) => {
     if (status === 'confirmed') return { dot: 'bg-green-500',  pill: 'bg-green-50 text-green-700',   label: assignmentStatusLabels.confirmed }
@@ -49,9 +61,9 @@ export default async function HistoriquePage() {
     const team = a.teams     as unknown as { name: string } | null
     const d    = plan?.service_date ? new Date(plan.service_date) : null
     const wd   = d ? fmtShort(plan!.service_date, { weekday: 'short' }) : ''
-    const day  = d ? d.getDate() : ''
+    const day  = d ? utcToLocalParts(d, timeZone).day : ''
     const mon  = d ? fmtShort(plan!.service_date, { month: 'short' }) : ''
-    const time = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''
+    const time = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone }) : ''
     const details = [time, pos?.name, team?.name].filter(Boolean).join(' · ')
     const badge = statusBadge(a.status)
     const isPending = a.status === 'pending'
@@ -179,7 +191,7 @@ export default async function HistoriquePage() {
                 const team = a.teams     as unknown as { name: string } | null
                 const d    = plan?.service_date ? new Date(plan.service_date) : null
                 const wd   = d ? fmtShort(plan!.service_date, { weekday: 'short' }) : ''
-                const day  = d ? d.getDate() : ''
+                const day  = d ? utcToLocalParts(d, timeZone).day : ''
                 const mon  = d ? fmtShort(plan!.service_date, { month: 'short' }) : ''
                 const badge = statusBadge(a.status)
                 return (

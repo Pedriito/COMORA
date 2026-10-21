@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { requireChurch } from '@/lib/auth/church'
+import { resolveTimeZone, startOfLocalDayUtc, utcToLocalParts } from '@/lib/timezone'
 import { respondAssignment } from '../admin/plans/actions'
 import { CancelAssignmentButton } from './CancelAssignmentButton'
 import { PushManager } from '../_components/PushManager'
@@ -8,36 +8,48 @@ import { PushPromptCard } from '../_components/PushPromptCard'
 import { IconBan, IconMusicalNote } from '../_components/Icons'
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('membre')
+  const { supabase, memberId } = ctx
+  const churchId = ctx.church.churchId
 
-  const { data: profileCheck } = await supabase
-    .from('profiles')
-    .select('status')
-    .eq('id', user.id)
-    .single()
-  if (profileCheck?.status === 'invited') redirect('/espace/set-password')
-
-  const now = new Date()
-  const yearStart   = new Date(now.getFullYear(), 0, 1).toISOString()
-  const quarterMonth = Math.floor(now.getMonth() / 3) * 3
-  const quarterStart = new Date(now.getFullYear(), quarterMonth, 1).toISOString()
-
+  const empty = Promise.resolve({ data: null })
   const [
-    { data: profile },
+    { data: church },
+    { data: account },
+    { data: member },
     { data: teamMemberships },
     { data: assignments },
     { data: confirmedHistory },
   ] = await Promise.all([
-    supabase.from('profiles').select('first_name, last_name, permission').eq('id', user.id).single(),
-    supabase.from('team_members').select('role, teams(id, name)').eq('user_id', user.id),
-    supabase.from('plan_assignments')
-      .select('id, status, plans(id, title, service_date), positions(name), teams(name)')
-      .eq('user_id', user.id).order('created_at', { ascending: false }).limit(20),
-    supabase.from('plan_assignments')
-      .select('plans(service_date)').eq('user_id', user.id).eq('status', 'confirmed'),
+    supabase.from('churches').select('timezone').eq('id', churchId).maybeSingle(),
+    supabase.from('profiles').select('first_name, last_name').eq('id', ctx.userId).maybeSingle(),
+    memberId
+      ? supabase.from('members').select('first_name, last_name').eq('id', memberId).eq('church_id', churchId).maybeSingle()
+      : empty,
+    memberId
+      ? supabase.from('team_members').select('role, teams(id, name)').eq('church_id', churchId).eq('member_id', memberId)
+      : empty,
+    memberId
+      ? supabase.from('plan_assignments')
+          .select('id, status, plans(id, title, service_date), positions(name), teams(name)')
+          .eq('church_id', churchId)
+          .eq('member_id', memberId).order('created_at', { ascending: false }).limit(20)
+      : empty,
+    memberId
+      ? supabase.from('plan_assignments')
+          .select('plans(service_date)').eq('church_id', churchId).eq('member_id', memberId).eq('status', 'confirmed')
+      : empty,
   ])
+
+  // Dates et heures affichées dans le fuseau de l'église
+  const timeZone = resolveTimeZone(church?.timezone)
+  const profile = member ?? account
+
+  const now = new Date()
+  const today = utcToLocalParts(now, timeZone)
+  const quarterMonth = Math.floor((today.month - 1) / 3) * 3 + 1
+  const yearStart    = startOfLocalDayUtc(`${today.year}-01-01`, timeZone)
+  const quarterStart = startOfLocalDayUtc(`${today.year}-${String(quarterMonth).padStart(2, '0')}-01`, timeZone)
 
   const upcoming = (assignments ?? [])
     .filter(a => {
@@ -58,23 +70,22 @@ export default async function DashboardPage() {
 
   const yearCount = (confirmedHistory ?? []).filter(a => {
     const d = (a.plans as unknown as { service_date: string } | null)?.service_date
-    return d && d >= yearStart
+    return d && new Date(d) >= new Date(yearStart)
   }).length
   const quarterCount = (confirmedHistory ?? []).filter(a => {
     const d = (a.plans as unknown as { service_date: string } | null)?.service_date
-    return d && d >= quarterStart
+    return d && new Date(d) >= new Date(quarterStart)
   }).length
 
   const daysUntil = nextPlan
     ? Math.ceil((new Date(nextPlan.service_date).getTime() - now.getTime()) / 86_400_000)
     : null
 
-  const todayLabel = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const mobileDateLabel = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()
+  const mobileDateLabel = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone }).toUpperCase()
   const initials = `${profile?.first_name?.[0] ?? ''}${profile?.last_name?.[0] ?? ''}`.toUpperCase() || 'B'
 
   const fmtDate = (iso: string, opts: Intl.DateTimeFormatOptions) => {
-    const s = new Date(iso).toLocaleDateString('fr-FR', opts)
+    const s = new Date(iso).toLocaleDateString('fr-FR', { ...opts, timeZone })
     return s.charAt(0).toUpperCase() + s.slice(1)
   }
 
@@ -123,7 +134,7 @@ export default async function DashboardPage() {
                   Prochain service
                 </p>
                 <span className="shrink-0 font-sans text-sm text-white/80 bg-white/15 px-3 py-0.5 rounded-full">
-                  {new Date(nextPlan.service_date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(nextPlan.service_date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone })}
                 </span>
               </div>
               <h2 className="font-display text-[1.9rem] text-white font-light leading-tight">
@@ -293,7 +304,7 @@ export default async function DashboardPage() {
                       const team = a.teams     as unknown as { name: string } | null
                       const d    = plan?.service_date ? new Date(plan.service_date) : null
                       const dateLabel = d ? fmtDate(plan!.service_date, { weekday: 'long', day: 'numeric', month: 'long' }) : '—'
-                      const time = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''
+                      const time = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone }) : ''
                       const subtitle = [plan?.title, pos?.name ?? team?.name, time].filter(Boolean).join(' · ')
                       return (
                         <div key={a.id} className="bg-white rounded-2xl border border-dark/8 border-l-[4px] border-l-amber-400 px-6 py-5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-4">
@@ -333,10 +344,10 @@ export default async function DashboardPage() {
                         const pos  = a.positions as unknown as { name: string } | null
                         const team = a.teams     as unknown as { name: string } | null
                         const d    = plan?.service_date ? new Date(plan.service_date) : null
-                        const weekday = d ? d.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '').toUpperCase() : ''
-                        const dayNum  = d ? d.getDate() : ''
-                        const month   = d ? d.toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '').toUpperCase() : ''
-                        const time    = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''
+                        const weekday = d ? d.toLocaleDateString('fr-FR', { weekday: 'short', timeZone }).replace('.', '').toUpperCase() : ''
+                        const dayNum  = d ? utcToLocalParts(d, timeZone).day : ''
+                        const month   = d ? d.toLocaleDateString('fr-FR', { month: 'short', timeZone }).replace('.', '').toUpperCase() : ''
+                        const time    = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone }) : ''
                         const details = [time, pos?.name, team?.name].filter(Boolean).join(' · ')
                         const isDeclined = a.status === 'declined'
                         return (
@@ -377,7 +388,7 @@ export default async function DashboardPage() {
                   <div className="flex items-start justify-between gap-2 mb-4">
                     <p className="font-sans text-[10px] uppercase tracking-widest text-white/50 font-semibold mt-0.5">Prochain service</p>
                     <span className="shrink-0 font-sans text-xs text-white bg-black/20 px-2.5 py-1 rounded-full">
-                      {new Date(nextPlan.service_date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(nextPlan.service_date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone })}
                     </span>
                   </div>
                   <p className="font-display text-2xl text-white font-light leading-tight">

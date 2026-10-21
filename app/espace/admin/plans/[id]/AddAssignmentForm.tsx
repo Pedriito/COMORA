@@ -5,7 +5,8 @@ import { addAssignment } from '../actions'
 import { IconWarning } from '@/app/espace/_components/Icons'
 import { frequencyLabels } from '@/lib/labels'
 
-const INVITE_EXT_ID = '00000000-0000-0000-0000-000000000001'
+// Valeur du champ `member_id` qui désigne un invité externe (voir addAssignment)
+const EXTERNAL_CHOICE = 'external'
 
 type Profile = {
   id: string
@@ -42,7 +43,7 @@ export function AddAssignmentForm({
     usesPositions && teamPositions.length === 1 ? teamPositions[0].id : ''
   )
   const [selectedUserId, setSelectedUserId] = useState('')
-  const isExternal = selectedUserId === INVITE_EXT_ID
+  const isExternal = selectedUserId === EXTERNAL_CHOICE
 
   const pool = usesPositions
     ? (selectedPositionId ? (candidatesByPosition[selectedPositionId] ?? []) : [])
@@ -88,7 +89,7 @@ export function AddAssignmentForm({
         )}
 
         <select
-          name="user_id"
+          name="member_id"
           value={selectedUserId}
           onChange={e => setSelectedUserId(e.target.value)}
           disabled={usesPositions && !selectedPositionId}
@@ -96,7 +97,7 @@ export function AddAssignmentForm({
         >
           <option value="">— Bénévole —</option>
           {isInviteTeam && (
-            <option value={INVITE_EXT_ID}>Invité (Ext)</option>
+            <option value={EXTERNAL_CHOICE}>Invité (Ext)</option>
           )}
 
           {/* Disponibles */}

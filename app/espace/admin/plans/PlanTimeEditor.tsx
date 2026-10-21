@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { movePlan } from './actions'
+import { utcToLocalParts } from '@/lib/timezone'
 
 type Props = {
   planId: string
@@ -13,20 +14,23 @@ type Props = {
   inputClassName?: string
   /** Empêche la propagation du clic vers un éventuel <Link> parent */
   stopPropagation?: boolean
+  /** Fuseau de l'église : l'heure affichée et saisie est celle de l'église */
+  timeZone?: string
 }
 
-export function PlanTimeEditor({ planId, serviceDate, className, inputClassName, stopPropagation }: Props) {
+export function PlanTimeEditor({ planId, serviceDate, className, inputClassName, stopPropagation, timeZone = 'Europe/Paris' }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [isEditing, setIsEditing] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const d = new Date(serviceDate)
-  const currentTime = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-  const currentTimeInput = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const p = utcToLocalParts(serviceDate, timeZone)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const currentTimeInput = `${pad(p.hour)}:${pad(p.minute)}`
+  const currentTime = currentTimeInput
 
-  // Date locale en YYYY-MM-DD (évite un décalage UTC si le service est tôt le matin)
-  const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  // Date locale de l'église en YYYY-MM-DD (le serveur reconvertit dans le même fuseau)
+  const localDate = `${p.year}-${pad(p.month)}-${pad(p.day)}`
 
   function save() {
     const val = inputRef.current?.value

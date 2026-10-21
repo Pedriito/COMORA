@@ -1,58 +1,44 @@
-import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { siteConfig } from '@/lib/site'
+import { loadAssignmentByToken, recordResponse } from '../../repondre/respond'
 
 async function respond(formData: FormData) {
   'use server'
-  const assignmentId = formData.get('assignment_id') as string
+  const token = formData.get('token') as string
   const status = formData.get('status') as string
-  if (!assignmentId || !['confirmed', 'declined'].includes(status)) return
-
-  const admin = createAdminClient()
-  await admin
-    .from('plan_assignments')
-    .update({ status })
-    .eq('id', assignmentId)
-
-  redirect(`/espace/repondre-ext/${assignmentId}?done=${status}`)
+  const done = await recordResponse(token, status, 'external')
+  redirect(`/espace/repondre-ext/${encodeURIComponent(token)}${done ? `?done=${status}` : '?error=1'}`)
 }
 
 export default async function RepondreExtPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id: string }>
-  searchParams: Promise<{ done?: string }>
+  params: Promise<{ token: string }>
+  searchParams: Promise<{ done?: string; error?: string }>
 }) {
-  const { id } = await params
-  const { done } = await searchParams
+  const { token } = await params
+  const { done: doneParam, error } = await searchParams
+  const done = doneParam === 'confirmed' || doneParam === 'declined' ? doneParam : undefined
 
-  const admin = createAdminClient()
-  const { data: a } = await admin
-    .from('plan_assignments')
-    .select('id, status, external_name, plans(title, service_date), positions(name), teams(name)')
-    .eq('id', id)
-    .single()
+  const a = await loadAssignmentByToken(token, 'external')
 
   if (!a) {
     return (
       <div className="min-h-screen bg-teal-50 flex items-center justify-center px-6">
         <div className="bg-white rounded-2xl border border-teal/20 p-8 max-w-sm w-full text-center">
-          <p className="font-sans text-sm text-dark/50">Invitation introuvable ou expirée.</p>
+          <p className="font-sans text-sm text-dark/50">Lien invalide ou expiré.</p>
         </div>
       </div>
     )
   }
 
-  const plan = a.plans as any
-  const position = a.positions as any
-  const team = a.teams as any
-
-  const date = new Date(plan.service_date).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  const tz = a.timeZone
+  const date = new Date(a.serviceDate).toLocaleDateString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: tz,
   })
-  const time = new Date(plan.service_date).toLocaleTimeString('fr-FR', {
-    hour: '2-digit', minute: '2-digit',
+  const time = new Date(a.serviceDate).toLocaleTimeString('fr-FR', {
+    hour: '2-digit', minute: '2-digit', timeZone: tz,
   })
 
   const alreadyResponded = a.status === 'confirmed' || a.status === 'declined'
@@ -70,10 +56,10 @@ export default async function RepondreExtPage({
 
         {/* Détails du service */}
         <div className="bg-teal/5 rounded-xl px-5 py-4 space-y-1">
-          <p className="font-sans font-semibold text-dark text-base">{plan.title}</p>
+          <p className="font-sans font-semibold text-dark text-base">{a.planTitle}</p>
           <p className="font-sans text-sm text-dark/60 capitalize">{date} à {time}</p>
-          {team?.name && <p className="font-sans text-sm text-teal">Équipe : {team.name}</p>}
-          {position?.name && <p className="font-sans text-sm text-teal">Rôle : {position.name}</p>}
+          {a.teamName && <p className="font-sans text-sm text-teal">Équipe : {a.teamName}</p>}
+          {a.positionName && <p className="font-sans text-sm text-teal">Rôle : {a.positionName}</p>}
         </div>
 
         {/* Résultat si déjà répondu via ce chargement */}
@@ -101,13 +87,15 @@ export default async function RepondreExtPage({
           </div>
         )}
 
+        {error && <p className="text-center font-sans text-xs text-red-500">Réponse non enregistrée, réessayez.</p>}
+
         {/* Boutons de réponse */}
         {!done && !alreadyResponded && (
           <div className="space-y-3">
             <p className="font-sans text-sm text-dark/60 text-center">Pouvez-vous participer ?</p>
             <div className="flex gap-3">
               <form action={respond} className="flex-1">
-                <input type="hidden" name="assignment_id" value={id} />
+                <input type="hidden" name="token" value={token} />
                 <input type="hidden" name="status" value="confirmed" />
                 <button
                   type="submit"
@@ -117,7 +105,7 @@ export default async function RepondreExtPage({
                 </button>
               </form>
               <form action={respond} className="flex-1">
-                <input type="hidden" name="assignment_id" value={id} />
+                <input type="hidden" name="token" value={token} />
                 <input type="hidden" name="status" value="declined" />
                 <button
                   type="submit"

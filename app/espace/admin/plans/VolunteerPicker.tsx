@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { addAssignmentAsync } from './actions'
 import { AssignVolunteerButton } from './AssignVolunteerButton'
 import type { PlanDetail, Profile, TeamDetail } from './getPlanDetail'
-import { INVITE_EXT_ID } from './constants'
 import { frequencyLabels } from '@/lib/labels'
 
 type Props = {
@@ -66,7 +65,7 @@ function CandidateRow({
       <AssignVolunteerButton
         planId={planId}
         teamId={team.id}
-        userId={p.id}
+        memberId={p.id}
         positionId={positionId}
         onAssigned={onAssigned}
         className={`font-sans text-xs font-semibold px-3 py-1.5 rounded-full transition-colors shrink-0 disabled:opacity-60 ${
@@ -102,7 +101,7 @@ function ExternalGuestForm({
     startTransition(async () => {
       try {
         const result = await addAssignmentAsync({
-          planId, teamId: team.id, userId: INVITE_EXT_ID, positionId, externalName, externalEmail,
+          planId, teamId: team.id, memberId: null, positionId, externalName, externalEmail,
         })
         if (result.ok) {
           formRef.current?.reset()

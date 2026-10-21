@@ -161,13 +161,13 @@ function TipsSection() {
 type Props = {
   plans: PlanItem[]
   monthParam?: string
-  icalUrl: string
+  hasCalendarFeed?: boolean
   canManage: boolean
   countByPlan?: Record<string, number>
 }
 
 // ── Composant principal ───────────────────────────────────────────────────────
-export function PlanCalendar({ plans, icalUrl, canManage, countByPlan = {} }: Props) {
+export function PlanCalendar({ plans, hasCalendarFeed = false, canManage, countByPlan = {} }: Props) {
   const calRef = useRef<FullCalendar>(null)
   const ctrlHeld = useRef(false)
   const router = useRouter()
@@ -358,7 +358,7 @@ export function PlanCalendar({ plans, icalUrl, canManage, countByPlan = {} }: Pr
               ))}
             </div>
 
-            <SubscribeCalendarButton icalUrl={icalUrl} />
+            <SubscribeCalendarButton hasFeed={hasCalendarFeed} />
           </div>
 
           {/* Indice drag */}

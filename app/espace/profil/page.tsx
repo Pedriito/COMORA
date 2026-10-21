@@ -1,12 +1,11 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
 import { saveProfile, changePassword } from './actions'
 import { logout } from '../login/actions'
 import { FlashMessage } from '../_components/FlashMessage'
 import { PasswordInput } from '../_components/PasswordInput'
 import { PushManager } from '../_components/PushManager'
-import { permissionLabels, frequencyLabels } from '@/lib/labels'
+import { churchRoleLabels, frequencyLabels } from '@/lib/labels'
 import { Logo } from '@/components/brand/logo'
 import { siteConfig } from '@/lib/site'
 
@@ -30,25 +29,36 @@ export default async function ProfilPage({
 }: {
   searchParams: Promise<{ error?: string; from?: string; email_sent?: string; pwd_error?: string; pwd_success?: string }>
 }) {
-  const supabase = await createClient()
+  const ctx = await requireChurch('membre')
+  const supabase = ctx.supabase
+  const churchId = ctx.church.churchId
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  if (!user) return null
 
-  const [{ data: profile }, { data: teamMemberships }] = await Promise.all([
-    supabase.from('profiles').select('first_name, last_name, phone, birthdate, city, desired_frequency, profile_complete, permission').eq('id', user.id).single(),
-    supabase.from('team_members').select('role, teams(name)').eq('user_id', user.id),
+  const [{ data: account }, { data: member }, { data: contact }, { data: teamMemberships }] = await Promise.all([
+    supabase.from('profiles').select('first_name, last_name').eq('id', user.id).maybeSingle(),
+    ctx.memberId
+      ? supabase.from('members').select('desired_frequency').eq('church_id', churchId).eq('id', ctx.memberId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    ctx.memberId
+      ? supabase.from('member_contacts').select('phone, city, birthdate').eq('church_id', churchId).eq('member_id', ctx.memberId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    ctx.memberId
+      ? supabase.from('team_members').select('role, teams(name)').eq('church_id', churchId).eq('member_id', ctx.memberId)
+      : Promise.resolve({ data: [] as { role: string; teams: unknown }[] }),
   ])
+  const profile = { ...account, ...member, ...contact }
 
   const params = await searchParams
   const errorMsg    = params.error     ? errors[params.error]       : null
   const emailSent   = !!params.email_sent
   const pwdErrorMsg = params.pwd_error ? pwdErrors[params.pwd_error] : null
   const pwdSuccess  = !!params.pwd_success
-  const isFirstTime = !profile?.profile_complete
+  // Première visite : arrivée par le lien d'activation
+  const isFirstTime = params.from === 'activation'
 
   const initials = `${profile?.first_name?.[0] ?? ''}${profile?.last_name?.[0] ?? ''}`.toUpperCase() || 'B'
-  const permission = profile?.permission ?? 'viewer'
-  const roleLabel  = permissionLabels[permission] ?? 'Bénévole'
+  const roleLabel  = churchRoleLabels[ctx.church.role] ?? 'Bénévole'
   const firstTeam  = (teamMemberships ?? []).map(t => (t.teams as unknown as { name: string } | null)?.name).filter(Boolean)[0]
   const subtitle   = firstTeam ? `${roleLabel} · ${firstTeam}` : roleLabel
 
@@ -269,8 +279,8 @@ export default async function ProfilPage({
                 <input id="phone" name="phone" type="tel" defaultValue={profile?.phone ?? ''} required={isFirstTime} placeholder="06 12 34 56 78" className="w-full px-4 py-2.5 rounded-lg border border-teal/30 bg-teal-50 text-dark placeholder:text-dark/30 focus:outline-none focus:ring-2 focus:ring-teal/40 font-sans text-sm" />
               </div>
               <div>
-                <label htmlFor="birthdate" className="block text-sm font-sans text-dark/70 mb-1.5">Date de naissance {isFirstTime && <span className="text-red-500">*</span>}</label>
-                <input id="birthdate" name="birthdate" type="date" defaultValue={profile?.birthdate ?? ''} required={isFirstTime} className="w-full px-4 py-2.5 rounded-lg border border-teal/30 bg-teal-50 text-dark focus:outline-none focus:ring-2 focus:ring-teal/40 font-sans text-sm" />
+                <label htmlFor="birthdate" className="block text-sm font-sans text-dark/70 mb-1.5">Date de naissance <span className="text-dark/30 text-xs">(facultatif)</span></label>
+                <input id="birthdate" name="birthdate" type="date" defaultValue={profile?.birthdate ?? ''} className="w-full px-4 py-2.5 rounded-lg border border-teal/30 bg-teal-50 text-dark focus:outline-none focus:ring-2 focus:ring-teal/40 font-sans text-sm" />
               </div>
               <div>
                 <label htmlFor="city" className="block text-sm font-sans text-dark/70 mb-1.5">Ville {isFirstTime && <span className="text-red-500">*</span>}</label>

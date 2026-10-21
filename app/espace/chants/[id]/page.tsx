@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChordChart } from './ChordChart'
 import { MediaPlayer } from './MediaPlayer'
@@ -19,7 +19,7 @@ type Arrangement = {
 }
 
 type Song = {
-  id: number
+  id: string
   title: string
   ccli: string | null
   themes: string | null
@@ -39,12 +39,9 @@ export default async function SongPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const { supabase, church } = await requireChurch('membre')
 
-  const { id } = await params
-  const songId = parseInt(id, 10)
+  const { id: songId } = await params
 
   const { data: song } = await supabase
     .from('songs')
@@ -53,7 +50,8 @@ export default async function SongPage({
       arrangements(id, name, bpm, length_seconds, notes, chord_chart, chord_chart_key, keys_available, tags, youtube_url, audio_url)
     `)
     .eq('id', songId)
-    .single()
+    .eq('church_id', church.churchId)
+    .maybeSingle()
 
   if (!song) notFound()
 

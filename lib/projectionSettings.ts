@@ -1,5 +1,7 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/lib/supabase/database.types'
+
 export type ProjectionSettings = {
-  id: string
   // ── Fond chants ──────────────────────────────────────────────────────────
   bg_type: 'color' | 'gradient' | 'image'
   bg_color: string
@@ -31,10 +33,7 @@ export type ProjectionSettings = {
   ann_text_max_width: number
 }
 
-export const SETTINGS_ID = '00000000-0000-0000-0000-000000000002'
-
 export const DEFAULT_SETTINGS: ProjectionSettings = {
-  id: SETTINGS_ID,
   // fond chants
   bg_type: 'color',
   bg_color: '#000000',
@@ -86,9 +85,101 @@ export const PRESET_GRADIENTS: { name: string; value: string }[] = [
   { name: 'Violet profond', value: 'linear-gradient(135deg, #1a0033, #2d0057, #1a0033)' },
 ]
 
-/** Fusionne les settings DB avec les defaults pour gérer les colonnes nulles */
-export function mergeSettings(db: Partial<ProjectionSettings> | null): ProjectionSettings {
-  return { ...DEFAULT_SETTINGS, ...(db ?? {}) } as ProjectionSettings
+/** Colonnes lues en base (jamais `*` : seules les valeurs d'affichage partent au navigateur). */
+// Littéral sur une ligne : le client typé en déduit le type des lignes
+export const PROJECTION_SETTINGS_COLUMNS = 'bg_type, bg_color, bg_gradient, bg_image_url, bg_blur, overlay_opacity, font_family, text_color, text_shadow, text_transform, font_size_scale, text_max_width, ann_bg_type, ann_bg_color, ann_bg_gradient, ann_bg_image_url, ann_bg_blur, ann_bg_overlay_opacity, ann_font_family, ann_text_color, ann_text_shadow, ann_text_transform, ann_title_font_size_scale, ann_font_size_scale, ann_text_max_width' as const
+
+/** Réglages de l'église (valeurs par défaut si elle n'en a pas encore enregistré). */
+export async function loadProjectionSettings(supabase: SupabaseClient<Database>, churchId: string): Promise<ProjectionSettings> {
+  const { data } = await supabase
+    .from('projection_settings')
+    .select(PROJECTION_SETTINGS_COLUMNS)
+    .eq('church_id', churchId)
+    .maybeSingle()
+  return mergeSettings(data)
+}
+
+/** Canal temps réel privé de l'église, où sont diffusés les réglages enregistrés. */
+export function projectionChannel(churchId: string): string {
+  return `church:${churchId}:projection`
+}
+export const SETTINGS_EVENT = 'settings'
+
+const BG_TYPES = ['color', 'gradient', 'image'] as const
+const TEXT_TRANSFORMS = ['uppercase', 'capitalize', 'small-caps', 'none'] as const
+
+function oneOf<T extends string>(list: readonly T[], value: unknown, fallback: T): T {
+  return list.includes(value as T) ? (value as T) : fallback
+}
+
+function color(value: unknown, fallback: string): string {
+  return typeof value === 'string' && /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) ? value : fallback
+}
+
+function gradient(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 300) return null
+  if (!/^(?:linear|radial|conic)-gradient\([#%.,\w\s()-]*\)$/i.test(value) || /url\s*\(/i.test(value)) return null
+  return value
+}
+
+function imageUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 2000 || /[\s"'()\\]/.test(value)) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? value : null
+  } catch {
+    return null
+  }
+}
+
+function num(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === 'string' ? Number(value) : value
+  return typeof n === 'number' && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback
+}
+
+function bool(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function font(value: unknown, fallback: string): string {
+  return (PROJECTION_FONTS as readonly string[]).includes(value as string) ? (value as string) : fallback
+}
+
+/**
+ * Réglages complets et sûrs à partir d'une ligne en base, d'un formulaire ou
+ * d'un message temps réel : chaque champ inconnu est ignoré, chaque valeur
+ * invalide remplacée par sa valeur par défaut.
+ */
+export function mergeSettings(raw: Partial<Record<keyof ProjectionSettings, unknown>> | null | undefined): ProjectionSettings {
+  const d = DEFAULT_SETTINGS
+  const v = raw ?? {}
+  return {
+    bg_type:          oneOf(BG_TYPES, v.bg_type, d.bg_type),
+    bg_color:         color(v.bg_color, d.bg_color),
+    bg_gradient:      gradient(v.bg_gradient),
+    bg_image_url:     imageUrl(v.bg_image_url),
+    bg_blur:          num(v.bg_blur, 0, 40, d.bg_blur),
+    overlay_opacity:  num(v.overlay_opacity, 0, 1, d.overlay_opacity),
+    font_family:      font(v.font_family, d.font_family),
+    text_color:       color(v.text_color, d.text_color),
+    text_shadow:      bool(v.text_shadow, d.text_shadow),
+    text_transform:   oneOf(TEXT_TRANSFORMS, v.text_transform, d.text_transform),
+    font_size_scale:  num(v.font_size_scale, 0.05, 4, d.font_size_scale),
+    text_max_width:   num(v.text_max_width, 30, 100, d.text_max_width),
+    ann_bg_type:            oneOf(BG_TYPES, v.ann_bg_type, d.ann_bg_type),
+    ann_bg_color:           color(v.ann_bg_color, d.ann_bg_color),
+    ann_bg_gradient:        gradient(v.ann_bg_gradient),
+    ann_bg_image_url:       imageUrl(v.ann_bg_image_url),
+    ann_bg_blur:            num(v.ann_bg_blur, 0, 40, d.ann_bg_blur),
+    ann_bg_overlay_opacity: num(v.ann_bg_overlay_opacity, 0, 1, d.ann_bg_overlay_opacity),
+    ann_font_family:           font(v.ann_font_family, d.ann_font_family),
+    ann_text_color:            color(v.ann_text_color, d.ann_text_color),
+    ann_text_shadow:           bool(v.ann_text_shadow, d.ann_text_shadow),
+    ann_text_transform:        oneOf(TEXT_TRANSFORMS, v.ann_text_transform, d.ann_text_transform),
+    ann_title_font_size_scale: num(v.ann_title_font_size_scale, 0.05, 4, d.ann_title_font_size_scale),
+    ann_font_size_scale:       num(v.ann_font_size_scale, 0.05, 4, d.ann_font_size_scale),
+    ann_text_max_width:        num(v.ann_text_max_width, 30, 100, d.ann_text_max_width),
+  }
 }
 
 // ── Fond ─────────────────────────────────────────────────────────────────────

@@ -1,8 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { requireChurch } from '@/lib/auth/church'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { permissionLabels, statusLabels, roleLabels, frequencyLabels } from '@/lib/labels'
+import { churchRoleLabels, statusLabels, roleLabels, frequencyLabels } from '@/lib/labels'
 import { IconEnvelope } from '@/app/espace/_components/Icons'
 import { resendInvite } from '../../actions'
 import { FlashMessage } from '../../../_components/FlashMessage'
@@ -16,52 +15,58 @@ export default async function BenevoleProfilePage({
 }) {
   const { id } = await params
   const { error: flashError, sent: flashSent, updated: flashUpdated } = await searchParams
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('responsable')
+  const churchId = ctx.church.churchId
+  const isAdmin = ctx.church.role === 'admin'
 
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
+  const { data: member } = await ctx.supabase
+    .from('members')
+    .select('id, user_id, first_name, last_name, status, created_at')
+    .eq('church_id', churchId)
+    .eq('id', id)
+    .maybeSingle()
 
-  const admin = createAdminClient()
+  if (!member) redirect('/espace/admin')
 
   const [
-    { data: profile },
-    { data: authUser },
+    { data: contact },
+    { data: membership },
     { data: teamMemberships },
     { data: memberPositions },
   ] = await Promise.all([
-    supabase
-      .from('profiles')
-      .select('id, first_name, last_name, phone, permission, status, created_at, email, birthdate, city')
-      .eq('id', id)
-      .single()
-      .then(res => {
-        // Si les nouvelles colonnes n'existent pas encore, on retente sans elles
-        if (res.error?.code === '42703') {
-          return supabase
-            .from('profiles')
-            .select('id, first_name, last_name, phone, permission, status, created_at')
-            .eq('id', id)
-            .single()
-        }
-        return res
-      }),
-    admin.auth.admin.getUserById(id),
-    supabase
+    ctx.supabase
+      .from('member_contacts')
+      .select('email, phone, city, birthdate')
+      .eq('church_id', churchId)
+      .eq('member_id', id)
+      .maybeSingle(),
+    member.user_id && isAdmin
+      ? ctx.supabase
+          .from('church_memberships')
+          .select('role, is_pastoral, status')
+          .eq('church_id', churchId)
+          .eq('user_id', member.user_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    ctx.supabase
       .from('team_members')
       .select('role, frequency, team_id, teams(id, name)')
-      .eq('user_id', id),
-    supabase
+      .eq('church_id', churchId)
+      .eq('member_id', id),
+    ctx.supabase
       .from('member_positions')
       .select('position_id, positions(id, name, team_id)')
-      .eq('user_id', id),
+      .eq('church_id', churchId)
+      .eq('member_id', id),
   ])
 
-  if (!profile) redirect('/espace/admin')
-
-  const p = profile as any
-  const email = p.email || authUser?.user?.email
+  const p = { ...member, ...contact }
+  const email = contact?.email ?? null
+  const accessLabel = !member.user_id
+    ? 'Sans compte'
+    : membership
+      ? `${churchRoleLabels[membership.role] ?? membership.role}${membership.is_pastoral ? ' · pastorale' : ''}`
+      : '—'
 
   // Regroupe les positions par équipe
   const positionsByTeam: Record<string, string[]> = {}
@@ -100,8 +105,9 @@ export default async function BenevoleProfilePage({
           >
             Modifier
           </Link>
+          {isAdmin && member.user_id && (
           <form action={resendInvite}>
-            <input type="hidden" name="user_id" value={id} />
+            <input type="hidden" name="member_id" value={id} />
             <button
               type="submit"
               className="px-3 py-1.5 rounded-lg border border-teal/30 text-teal font-sans text-xs font-medium hover:bg-teal-50 transition-colors"
@@ -109,12 +115,13 @@ export default async function BenevoleProfilePage({
               <span className="inline-flex items-center gap-1.5"><IconEnvelope className="w-3.5 h-3.5" /> Renvoyer l'invitation</span>
             </button>
           </form>
+          )}
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
-        {flashError && <FlashMessage message={`Erreur : ${flashError}`} type="error" />}
-        {flashSent && <FlashMessage message={`Invitation envoyée à ${email}.`} type="success" />}
+        {flashError && <FlashMessage message="L’invitation n’a pas pu être renvoyée. Vérifie que la personne a bien accès à l’espace, puis réessaie." type="error" />}
+        {flashSent && <FlashMessage message="Invitation envoyée." type="success" />}
         {flashUpdated && <FlashMessage message="Fiche mise à jour." type="success" />}
 
         {/* Coordonnées */}
@@ -130,7 +137,7 @@ export default async function BenevoleProfilePage({
                 ? new Date(p.birthdate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
                 : '—'}
             />
-            <Row label="Niveau d'accès" value={permissionLabels[p.permission] ?? p.permission} />
+            <Row label="Accès" value={accessLabel} />
             <Row
               label="Membre depuis"
               value={new Date(p.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}

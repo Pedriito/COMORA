@@ -16,12 +16,12 @@ type PlanSong = {
   id: string
   order_index: number
   key_selected: string | null
-  songs: { id: number; title: string } | null
+  songs: { id: string; title: string } | null
   arrangements: Arrangement | null
 }
 
 type SongForAdd = {
-  id: number
+  id: string
   title: string
   arrangements: { id: string; name: string; chord_chart_key: string | null; keys_available: string[] }[]
 }
@@ -365,7 +365,7 @@ export function SongsSection({ planId, planSongs, allSongs }: Props) {
               chart={active.arrangements.chord_chart}
               originalKey={active.arrangements.chord_chart_key}
               initialKey={active.key_selected ?? active.arrangements.chord_chart_key ?? undefined}
-              songId={active.songs?.id ?? 0}
+              songId={active.songs?.id ?? ''}
               arrangementId={active.arrangements.id}
             />
           ) : (

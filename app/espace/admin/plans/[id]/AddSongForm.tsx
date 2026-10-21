@@ -4,7 +4,7 @@ import { useState, useTransition, useMemo } from 'react'
 import { addPlanSong } from '../actions'
 
 type Song = {
-  id: number
+  id: string
   title: string
   arrangements: { id: string; name: string; chord_chart_key: string | null; keys_available: string[] }[]
 }

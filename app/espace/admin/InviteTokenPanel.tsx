@@ -31,11 +31,14 @@ export default function InviteTokenPanel({ initial }: Props) {
   const [tokens, setTokens]     = useState<InviteToken[]>(initial)
   const [creating, setCreating] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // Jeton en clair du lien qui vient d'être créé : affiché une seule fois, jamais relu
+  const [fresh, setFresh] = useState<{ id: string; token: string } | null>(null)
   const [isPending, startTransition] = useTransition()
 
-  function copyLink(token: InviteToken) {
-    navigator.clipboard.writeText(shareUrl(token.token)).then(() => {
-      setCopiedId(token.id)
+  function copyLink(id: string, token: string) {
+    navigator.clipboard.writeText(shareUrl(token)).then(() => {
+      setCopiedId(id)
       setTimeout(() => setCopiedId(null), 2000)
     })
   }
@@ -43,10 +46,15 @@ export default function InviteTokenPanel({ initial }: Props) {
   function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const fd = new FormData(e.currentTarget)
+    setError(null)
     startTransition(async () => {
       const res = await createInviteToken(fd)
       if (res.ok) {
-        window.location.reload()
+        setTokens(prev => [res.invite, ...prev])
+        setFresh({ id: res.invite.id, token: res.token })
+        setCreating(false)
+      } else {
+        setError(res.error)
       }
     })
   }
@@ -85,7 +93,13 @@ export default function InviteTokenPanel({ initial }: Props) {
               {t.label && (
                 <p className="font-sans text-xs text-teal/70 uppercase tracking-wide mb-0.5">{t.label}</p>
               )}
-              <p className="font-mono text-xs text-dark/50 truncate">{shareUrl(t.token)}</p>
+              {fresh?.id === t.id ? (
+                <p className="font-mono text-xs text-dark/50 truncate">{shareUrl(fresh.token)}</p>
+              ) : (
+                <p className="font-sans text-xs text-dark/40">
+                  Lien créé le {new Date(t.created_at).toLocaleDateString('fr-FR')}
+                </p>
+              )}
               <div className="flex gap-3 mt-1 flex-wrap">
                 <span className="font-sans text-[10px] text-dark/30">
                   {t.uses_count} inscription{t.uses_count !== 1 ? 's' : ''}
@@ -125,14 +139,16 @@ export default function InviteTokenPanel({ initial }: Props) {
             </div>
 
             <div className="flex gap-2 shrink-0">
+              {fresh?.id === t.id && (
               <button
-                onClick={() => copyLink(t)}
+                onClick={() => copyLink(t.id, fresh.token)}
                 className={`px-3 py-1.5 rounded-lg font-sans text-xs font-medium transition-colors ${
                   copiedId === t.id ? 'bg-green-500 text-white' : 'bg-teal text-white hover:bg-teal/90'
                 }`}
               >
                 {copiedId === t.id ? '✓ Copié' : 'Copier'}
               </button>
+              )}
               <button
                 onClick={() => handleRevoke(t.id)}
                 disabled={isPending}
@@ -143,16 +159,26 @@ export default function InviteTokenPanel({ initial }: Props) {
             </div>
           </div>
 
-          {/* QR code */}
-          <Image
-            src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=6&data=${encodeURIComponent(shareUrl(t.token))}`}
-            alt="QR Code"
-            width={120}
-            height={120}
-            className="rounded-lg border border-teal/10"
-          />
+          {fresh?.id === t.id ? (
+            <>
+              <p className="font-sans text-[11px] text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                Copie ce lien maintenant : pour des raisons de sécurité, il ne sera plus affiché. Tu pourras toujours en créer un nouveau.
+              </p>
+              {/* QR code */}
+              <Image
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=6&data=${encodeURIComponent(shareUrl(fresh.token))}`}
+                alt="QR Code"
+                width={120}
+                height={120}
+                unoptimized
+                className="rounded-lg border border-teal/10"
+              />
+            </>
+          ) : null}
         </div>
       ))}
+
+      {error && <p className="font-sans text-xs text-red-500">{error}</p>}
 
       {/* Formulaire de création */}
       {creating ? (

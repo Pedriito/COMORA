@@ -18,7 +18,7 @@ const PlanCalendarLazy = dynamic(
 type Props = {
   plans: PlanItem[]
   monthParam?: string
-  icalUrl: string
+  hasCalendarFeed?: boolean
   canManage: boolean
   countByPlan?: Record<string, number>
 }

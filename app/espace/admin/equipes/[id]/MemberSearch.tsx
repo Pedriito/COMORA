@@ -13,7 +13,7 @@ function AddMemberRow({ teamId, profile }: { teamId: string; profile: Profile })
     <form action={formAction} className="px-4 py-3 hover:bg-teal-50/40">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <input type="hidden" name="team_id" value={teamId} />
-        <input type="hidden" name="user_id" value={profile.id} />
+        <input type="hidden" name="member_id" value={profile.id} />
 
         <span className="sm:flex-1 min-w-0 truncate font-sans text-sm text-dark">
           {profile.first_name} {profile.last_name}
@@ -44,13 +44,13 @@ function AddMemberRow({ teamId, profile }: { teamId: string; profile: Profile })
   )
 }
 
-export function MemberSearch({ teamId, profiles }: { teamId: string; profiles: Profile[] }) {
+export function MemberSearch({ teamId, members }: { teamId: string; members: Profile[] }) {
   const [query, setQuery] = useState('')
 
-  const filtered = useMemo(() => profiles.filter(p => {
+  const filtered = useMemo(() => members.filter(p => {
     const full = `${p.first_name} ${p.last_name}`.toLowerCase()
     return full.includes(query.toLowerCase())
-  }), [profiles, query])
+  }), [members, query])
 
   return (
     <div className="bg-white rounded-2xl border border-teal/20 p-6 space-y-4">

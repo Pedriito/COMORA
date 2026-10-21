@@ -1,6 +1,10 @@
 /**
- * Import one-time des chants depuis le CSV Planning Center Services.
- * Usage: npx tsx scripts/import-songs.ts <path-to-csv>
+ * Import des chants d'une église depuis le CSV Planning Center Services.
+ * Usage: npx tsx scripts/import-songs.ts <church-id> <path-to-csv>
+ *
+ * Les chants sont rattachés à l'église <church-id> (obligatoire). Un chant
+ * déjà présent dans cette église avec le même titre est mis à jour au lieu
+ * d'être dupliqué ; l'identifiant du CSV n'est pas réutilisé.
  *
  * Le CSV a jusqu'à 3 arrangements par chant ; chaque arrangement peut contenir
  * une grille d'accords multi-lignes (champ RFC 4180 entre guillemets).
@@ -9,6 +13,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { createClient } from '@supabase/supabase-js'
+import type { Database } from '../lib/supabase/database.types'
 
 // ── Config Supabase ────────────────────────────────────────────────────────
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -19,7 +24,10 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   process.exit(1)
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+// Clé secrète : script d'administration, chaque écriture fixe church_id
+const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // ── Parseur CSV RFC 4180 ───────────────────────────────────────────────────
 function parseCSV(raw: string): string[][] {
@@ -129,11 +137,18 @@ function parseArrangement(row: string[], idx: number) {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 async function main() {
-  const csvPath = process.argv[2]
-  if (!csvPath) {
-    console.error('Usage: npx tsx scripts/import-songs.ts <path-to-csv>')
+  const [churchId, csvPath] = process.argv.slice(2)
+  if (!churchId || !csvPath || !UUID_RE.test(churchId)) {
+    console.error('Usage: npx tsx scripts/import-songs.ts <church-id> <path-to-csv>')
     process.exit(1)
   }
+
+  const { data: church } = await supabase.from('churches').select('id, name').eq('id', churchId).maybeSingle()
+  if (!church) {
+    console.error(`❌ Église ${churchId} introuvable`)
+    process.exit(1)
+  }
+  console.log(`⛪ Import dans l'église « ${church.name} »`)
 
   const raw = fs.readFileSync(path.resolve(csvPath), 'utf-8')
   const rows = parseCSV(raw)
@@ -152,16 +167,15 @@ async function main() {
 
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r]
-    const songId = parseInt(row[0], 10)
     const title  = row[1]?.trim()
 
-    if (!title || isNaN(songId)) {
-      console.warn(`  ⚠  ligne ${r + 1} ignorée (id=${row[0]} title=${row[1]})`)
+    if (!title) {
+      console.warn(`  ⚠  ligne ${r + 1} ignorée (titre manquant)`)
       continue
     }
 
     const song = {
-      id:                   songId,
+      church_id:            churchId,
       title,
       ccli:                 row[2]?.trim() || null,
       themes:               row[3]?.trim() || null,
@@ -169,16 +183,25 @@ async function main() {
       last_scheduled_date:  parseDate(row[5] ?? ''),
     }
 
-    // Upsert du chant
-    const { error: songErr } = await supabase
+    // Chant existant (même titre dans cette église) : mise à jour, sinon création
+    const { data: existingSong } = await supabase
       .from('songs')
-      .upsert(song, { onConflict: 'id' })
+      .select('id')
+      .eq('church_id', churchId)
+      .eq('title', title)
+      .limit(1)
+      .maybeSingle()
 
-    if (songErr) {
-      console.error(`  ❌ song ${songId} (${title}): ${songErr.message}`)
+    const { data: saved, error: songErr } = existingSong
+      ? await supabase.from('songs').update(song).eq('id', existingSong.id).eq('church_id', churchId).select('id').single()
+      : await supabase.from('songs').insert(song).select('id').single()
+
+    if (songErr || !saved) {
+      console.error(`  ❌ ligne ${r + 1} (${title}): ${songErr?.message ?? 'erreur'}`)
       errors++
       continue
     }
+    const songId = saved.id
 
     // Arrangements (jusqu'à 3)
     for (let a = 0; a < 3; a++) {
@@ -189,11 +212,14 @@ async function main() {
       const { data: existing } = await supabase
         .from('arrangements')
         .select('id')
+        .eq('church_id', churchId)
         .eq('song_id', songId)
         .eq('name', arr.name)
-        .single()
+        .limit(1)
+        .maybeSingle()
 
       const arrData = {
+        church_id:       churchId,
         song_id:         songId,
         name:            arr.name,
         bpm:             arr.bpm,
@@ -206,7 +232,7 @@ async function main() {
       }
 
       const { error: arrErr } = existing
-        ? await supabase.from('arrangements').update(arrData).eq('id', existing.id)
+        ? await supabase.from('arrangements').update(arrData).eq('id', existing.id).eq('church_id', churchId)
         : await supabase.from('arrangements').insert(arrData)
 
       if (arrErr) {

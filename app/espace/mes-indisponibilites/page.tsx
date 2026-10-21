@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
+import { localDateString, resolveTimeZone } from '@/lib/timezone'
 import { addBlockout, removeBlockout } from './actions'
 
 export default async function IndisponibilitesPage({
@@ -7,27 +7,30 @@ export default async function IndisponibilitesPage({
 }: {
   searchParams: Promise<{ success?: string; error?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('membre')
+  const { supabase, memberId } = ctx
+  const churchId = ctx.church.churchId
 
   const params = await searchParams
 
-  const { data: blockouts } = await supabase
-    .from('blockout_dates')
-    .select('id, start_date, end_date, reason')
-    .eq('user_id', user.id)
-    .order('start_date', { ascending: false })
+  const [{ data: church }, { data: blockouts }] = await Promise.all([
+    supabase.from('churches').select('timezone').eq('id', churchId).maybeSingle(),
+    memberId
+      ? supabase
+          .from('blockout_dates')
+          .select('id, start_date, end_date, reason')
+          .eq('church_id', churchId)
+          .eq('member_id', memberId)
+          .order('start_date', { ascending: false })
+      : Promise.resolve({ data: null }),
+  ])
 
-  const today = new Date().toISOString().split('T')[0]
+  // « Aujourd'hui » selon le fuseau de l'église
+  const today = localDateString(new Date(), resolveTimeZone(church?.timezone))
 
-  const fmtDate = (iso: string) => {
-    const d = new Date(iso)
-    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
-  }
-
+  // Dates sans heure ("YYYY-MM-DD") : lues et affichées en UTC pour ne jamais décaler le jour
   const fmtLong = (iso: string) =>
-    new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+    new Date(`${iso}T00:00:00Z`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
 
   const count = blockouts?.length ?? 0
 
@@ -44,6 +47,11 @@ export default async function IndisponibilitesPage({
         </div>
 
         <div className="px-4 pb-6 space-y-4">
+          {!memberId && (
+            <div className="bg-white rounded-2xl px-4 py-3 font-sans text-sm text-dark/50">
+              Ton compte n&rsquo;est pas encore relié à une fiche de cette église : demande à un responsable de t&rsquo;ajouter.
+            </div>
+          )}
           {params.success === 'added' && (
             <div className="bg-teal/10 rounded-2xl px-4 py-3 font-sans text-sm text-teal-dark">
               Indisponibilité enregistrée.
@@ -163,6 +171,11 @@ export default async function IndisponibilitesPage({
 
         <main className="px-6 md:px-10 py-8">
           <div className="max-w-2xl mx-auto space-y-6">
+            {!memberId && (
+              <div className="bg-white border border-teal/20 text-dark/50 rounded-xl px-4 py-3 font-sans text-sm">
+                Ton compte n&rsquo;est pas encore relié à une fiche de cette église : demande à un responsable de t&rsquo;ajouter.
+              </div>
+            )}
             {params.success === 'added' && (
               <div className="bg-teal-light border border-teal/20 text-teal-dark rounded-xl px-4 py-3 font-sans text-sm">
                 Indisponibilité enregistrée.

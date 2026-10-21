@@ -1,9 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
 
 type Song = {
-  id: number
+  id: string
   title: string
   ccli: string | null
   themes: string | null
@@ -18,9 +17,7 @@ export default async function ChantsPage({
 }: {
   searchParams: Promise<{ q?: string; page?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const { supabase, church } = await requireChurch('membre')
 
   const { q, page: pageParam } = await searchParams
   const search = q?.trim() ?? ''
@@ -31,6 +28,7 @@ export default async function ChantsPage({
   let baseQuery = supabase
     .from('songs')
     .select('id, title, ccli, themes, last_scheduled_date, arrangements(id, chord_chart_key)')
+    .eq('church_id', church.churchId)
     .order('title')
 
   if (search) baseQuery = baseQuery.ilike('title', `%${search}%`)
@@ -39,7 +37,7 @@ export default async function ChantsPage({
     search ? baseQuery : baseQuery.range(start, end),
     search
       ? Promise.resolve({ count: null })
-      : supabase.from('songs').select('id', { count: 'exact', head: true }),
+      : supabase.from('songs').select('id', { count: 'exact', head: true }).eq('church_id', church.churchId),
   ])
   const count    = songs?.length ?? 0
   const total    = totalCount ?? count

@@ -4,14 +4,14 @@ import { useEffect, useState, useRef } from 'react'
 import Image from 'next/image'
 import { buildAllSlides, type Slide } from '@/lib/parseSlides'
 import { CountdownDisplay, COUNTDOWN_SECONDS } from '@/app/_components/CountdownDisplay'
-import { type ProjectionSettings, DEFAULT_SETTINGS, getBgStyle, getAnnBgStyle, getTextStyle, getAnnTextStyle, loadGoogleFont, mergeSettings, calcFontSize, calcAnnFontSize, SETTINGS_ID } from '@/lib/projectionSettings'
+import { type ProjectionSettings, DEFAULT_SETTINGS, getBgStyle, getAnnBgStyle, getTextStyle, getAnnTextStyle, loadGoogleFont, mergeSettings, calcFontSize, calcAnnFontSize, projectionChannel, SETTINGS_EVENT } from '@/lib/projectionSettings'
 import { PRESET_KEYFRAMES, getPresetById, type SlideStyle } from '@/lib/slidePresets'
 import { createClient } from '@/lib/supabase/client'
 
 type Song = {
   planSongId: string
   keySelected: string | null
-  song: { id: number; title: string }
+  song: { id: string; title: string }
   arrangement: {
     id: string; name: string
     chord_chart: string | null; chord_chart_key: string | null
@@ -19,27 +19,34 @@ type Song = {
   } | null
 }
 
-type Props = { planId: string; songs: Song[]; settings?: ProjectionSettings; churchName?: string }
+type Props = { planId: string; churchId: string; songs: Song[]; settings?: ProjectionSettings; churchName?: string }
 
-export function ProjectorScreen({ planId, songs: songsProp, settings: settingsProp, churchName }: Props) {
+export function ProjectorScreen({ planId, churchId, songs: songsProp, settings: settingsProp, churchName }: Props) {
   // Fusion avec les defaults pour gérer les nouvelles colonnes nulles en DB
   const [settings, setSettings] = useState<ProjectionSettings>(mergeSettings(settingsProp ?? null))
   // Songs en state pour recevoir les chants ajoutés à la volée depuis l'opérateur
   const [songs, setSongs] = useState(songsProp)
 
-  // Écouter les changements de settings en temps réel (modifiés depuis la page Paramètres)
+  // Écouter les réglages enregistrés depuis la page Paramètres (canal privé de l'église)
   useEffect(() => {
     const supabase = createClient()
-    const ch = supabase
-      .channel('projection-settings-live')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'projection_settings', filter: `id=eq.${SETTINGS_ID}` },
-        (payload) => { setSettings(mergeSettings(payload.new as Partial<ProjectionSettings>)) }
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(ch) }
-  }, [])
+    let ch: ReturnType<typeof supabase.channel> | null = null
+    let cancelled = false
+    supabase.realtime.setAuth().then(() => {
+      if (cancelled) return
+      ch = supabase
+        .channel(projectionChannel(churchId), { config: { private: true } })
+        .on('broadcast', { event: SETTINGS_EVENT }, ({ payload }) => {
+          // Valeurs revalidées : un message mal formé retombe sur les valeurs par défaut
+          setSettings(mergeSettings(payload as Partial<ProjectionSettings>))
+        })
+        .subscribe()
+    })
+    return () => {
+      cancelled = true
+      if (ch) supabase.removeChannel(ch)
+    }
+  }, [churchId])
   const [current, setCurrent]         = useState<{ songIdx: number; slideIdx: number }>({ songIdx: 0, slideIdx: 0 })
   const [projectedImageUrl, setProjectedImageUrl] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)

@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { hashToken, isWellFormedToken } from '@/lib/tokens'
 import { RegisterForm } from './RegisterForm'
 import { Logo } from '@/components/brand/logo'
 
@@ -8,13 +9,14 @@ export default async function RejoindreTokenPage({
   params: Promise<{ token: string }>
 }) {
   const { token } = await params
-  const admin = createAdminClient()
-
-  const { data: tk } = await admin
-    .from('invite_tokens')
-    .select('id, label, expires_at, max_uses, uses_count, revoked_at')
-    .eq('token', token)
-    .single()
+  // Clé secrète : page publique à jeton (lecture seule, le lien est consommé à l'inscription)
+  const { data: tk } = isWellFormedToken(token)
+    ? await createAdminClient()
+        .from('invite_tokens')
+        .select('id, label, expires_at, max_uses, uses_count, revoked_at')
+        .eq('token_hash', hashToken(token))
+        .maybeSingle()
+    : { data: null }
 
   const invalid =
     !tk ||

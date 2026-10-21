@@ -117,7 +117,15 @@ supabase db reset     # applique les migrations
 npm run test:rls      # deux églises de test, chaque table attaquée avec la clé publique
 ```
 
-Une table ajoutée sans test d'isolation fait échouer la suite. Projet Supabase hébergé : région `eu-west-3` (Paris).
+Une table ajoutée sans test d'isolation fait échouer la suite.
+
+Parcours à jeton et espace connecté, sur un vrai serveur branché sur la base locale :
+
+```bash
+# serveur de test : copie du projet avec .env.local pointant sur Supabase local
+FLOWS_BASE_URL=http://localhost:3200 APP_TOKEN_SECRET=… CRON_SECRET=… npm run test:rls   # liens publics, cron, domaines
+FLOWS_BASE_URL=http://localhost:3200 npx tsx tests/rls/smoke-espace.ts                   # chaque page, admin et membre
+``` Projet Supabase hébergé : région `eu-west-3` (Paris).
 
 ## Contenus et licences
 

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { requireChurch } from '@/lib/auth/church'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { QuickAddDecision } from './QuickAddDecision'
@@ -46,26 +46,23 @@ export default async function GestionTeamPage({
   params: Promise<{ team_id: string }>
 }) {
   const { team_id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('membre')
+  const supabase = ctx.supabase
+  const churchId = ctx.church.churchId
 
-  const { data: myProfile } = await supabase
-    .from('profiles')
-    .select('permission')
-    .eq('id', user.id)
-    .single()
+  const isAdmin = ctx.church.role === 'admin' || ctx.church.role === 'responsable'
 
-  const isAdmin = ['admin', 'editor', 'super_admin'].includes(myProfile?.permission ?? '')
-
-  // Vérification d'accès
+  // Vérification d'accès : un membre ne voit que les équipes dont il fait partie
   if (!isAdmin) {
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('team_id', team_id)
-      .single()
+    const { data: membership } = ctx.memberId
+      ? await supabase
+          .from('team_members')
+          .select('id')
+          .eq('church_id', churchId)
+          .eq('member_id', ctx.memberId)
+          .eq('team_id', team_id)
+          .maybeSingle()
+      : { data: null }
     if (!membership) redirect('/espace/gestion')
   }
 
@@ -74,27 +71,34 @@ export default async function GestionTeamPage({
     { data: memberships },
     { data: rawDecisions },
     { data: rawTasks },
-    { data: allProfiles },
+    { data: allMembers },
   ] = await Promise.all([
-    supabase.from('teams').select('id, name').eq('id', team_id).single(),
-    supabase.from('team_members').select('user_id, role').eq('team_id', team_id),
+    supabase.from('teams').select('id, name').eq('church_id', churchId).eq('id', team_id).maybeSingle(),
+    supabase.from('team_members').select('member_id, role').eq('church_id', churchId).eq('team_id', team_id),
     supabase
       .from('decisions')
       .select('id, title, context, status, decision_note, created_by, created_at, decided_at, decided_by')
+      .eq('church_id', churchId)
       .eq('team_id', team_id)
       .order('created_at', { ascending: false }),
     supabase
       .from('tasks')
       .select('id, title, status, assigned_to, due_date, created_at')
+      .eq('church_id', churchId)
       .eq('team_id', team_id)
       .order('created_at', { ascending: false }),
-    supabase.from('profiles').select('id, first_name, last_name'),
+    supabase.from('members').select('id, user_id, first_name, last_name').eq('church_id', churchId),
   ])
 
   if (!team) redirect('/espace/gestion')
 
-  const profileMap = new Map<string, Profile>()
-  allProfiles?.forEach(p => profileMap.set(p.id, p))
+  // Tâches : `assigned_to` est une personne ; décisions : auteurs et décideurs sont des comptes
+  const memberMap = new Map<string, Profile>()
+  const accountMap = new Map<string, Profile>()
+  allMembers?.forEach(m => {
+    memberMap.set(m.id, m)
+    if (m.user_id) accountMap.set(m.user_id, m)
+  })
 
   const decisions = (rawDecisions ?? []) as Decision[]
   const tasks = (rawTasks ?? []) as Task[]
@@ -106,7 +110,7 @@ export default async function GestionTeamPage({
   const doneTasks = tasks.filter(t => t.status === 'done')
 
   const teamMembers = (memberships ?? [])
-    .map(m => profileMap.get(m.user_id))
+    .map(m => memberMap.get(m.member_id))
     .filter((p): p is Profile => p !== undefined)
 
   return (
@@ -143,7 +147,7 @@ export default async function GestionTeamPage({
           ) : (
             <div className="space-y-2 mt-3">
               {pendingDecisions.map(d => {
-                const author = d.created_by ? profileMap.get(d.created_by) : null
+                const author = d.created_by ? accountMap.get(d.created_by) : null
                 return (
                   <div key={d.id} className="bg-white rounded-2xl border border-amber-200 overflow-hidden">
                     <div className="px-5 py-4">
@@ -179,7 +183,7 @@ export default async function GestionTeamPage({
               </summary>
               <div className="space-y-2 mt-2">
                 {resolvedDecisions.map(d => {
-                  const decidedBy = d.decided_by ? profileMap.get(d.decided_by) : null
+                  const decidedBy = d.decided_by ? accountMap.get(d.decided_by) : null
                   return (
                     <div key={d.id} className="bg-white/60 rounded-xl border border-dark/6 px-4 py-3">
                       <div className="flex items-start justify-between gap-2">
@@ -188,7 +192,7 @@ export default async function GestionTeamPage({
                           {d.decision_note && (
                             <p className="font-sans text-xs text-teal/70 mt-1">→ {d.decision_note}</p>
                           )}
-                          {d.status === 'dismissed' && !d.decision_note && (
+                          {d.status === 'rejected' && !d.decision_note && (
                             <p className="font-sans text-xs text-dark/25 mt-1 italic">Archivé sans suite</p>
                           )}
                           <p className="font-sans text-xs text-dark/25 mt-1.5">
@@ -224,7 +228,7 @@ export default async function GestionTeamPage({
             <div className="bg-white rounded-2xl border border-dark/8 overflow-hidden mt-3">
               {/* À faire */}
               {todoTasks.map(t => {
-                const assignee = t.assigned_to ? profileMap.get(t.assigned_to) : null
+                const assignee = t.assigned_to ? memberMap.get(t.assigned_to) : null
                 const overdue = t.due_date && new Date(t.due_date) < new Date()
                 return (
                   <div key={t.id} className="flex items-center gap-3 px-4 py-3 border-b border-dark/6 last:border-0 group">
@@ -267,7 +271,7 @@ export default async function GestionTeamPage({
                 <div className="border-t-2 border-dark/5" />
               )}
               {doneTasks.map(t => {
-                const assignee = t.assigned_to ? profileMap.get(t.assigned_to) : null
+                const assignee = t.assigned_to ? memberMap.get(t.assigned_to) : null
                 return (
                   <div key={t.id} className="flex items-center gap-3 px-4 py-3 border-b border-dark/5 last:border-0 bg-sand/40 group">
                     <form action={toggleTask} className="shrink-0">

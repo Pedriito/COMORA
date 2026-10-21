@@ -1,4 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
+import { requireChurch, grants } from '@/lib/auth/church'
+import { churchTimeZone } from './notifyTeamLeaders'
 import { getPlanDetail } from './getPlanDetail'
 import { TriagePanel } from './TriagePanel'
 import { PlanWorkspace } from './PlanWorkspace'
@@ -6,7 +7,6 @@ import type { PlanItem } from './page'
 
 type Props = {
   selectedPlanId: string
-  userId: string
   isAdmin: boolean
   plans: PlanItem[]
   pastPlans: PlanItem[]
@@ -21,10 +21,16 @@ type Props = {
  *  entouré d'un <Suspense key={selectedPlanId}> — changer de service affiche un squelette
  *  au lieu de figer l'écran (la navigation ne se fait que via un search param, sans loading.tsx). */
 export async function PlanWorkspaceData({
-  selectedPlanId, userId, isAdmin, plans, pastPlans, countByPlan, fillKey, flashError, flashSent,
+  selectedPlanId, isAdmin, plans, pastPlans, countByPlan, fillKey, flashError, flashSent,
 }: Props) {
-  const supabase = await createClient()
-  const detail = await getPlanDetail(supabase, selectedPlanId, userId, isAdmin)
+  const ctx = await requireChurch('membre')
+  const timeZone = await churchTimeZone(ctx.supabase, ctx.church.churchId)
+  const detail = await getPlanDetail(ctx.supabase, selectedPlanId, {
+    churchId: ctx.church.churchId,
+    memberId: ctx.memberId,
+    canManage: grants(ctx.church, 'responsable'),
+    timeZone,
+  })
 
   if (!detail) {
     return (
@@ -54,7 +60,7 @@ export async function PlanWorkspaceData({
       <PlanWorkspace
         planId={selectedPlanId}
         detail={detail}
-        userId={userId}
+        memberId={ctx.memberId}
         isAdmin={isAdmin}
         flashError={flashError}
         flashSent={flashSent}

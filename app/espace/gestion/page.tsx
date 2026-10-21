@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
 import { InboxCard } from './InboxAssignForm'
 
@@ -26,28 +25,24 @@ function avatarColor(name: string) {
 }
 
 export default async function GestionPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('membre')
+  const supabase = ctx.supabase
+  const churchId = ctx.church.churchId
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('permission')
-    .eq('id', user.id)
-    .single()
-
-  const isAdmin = ['admin', 'editor', 'super_admin'].includes(profile?.permission ?? '')
+  // Coordinateurs et administrateurs voient toutes les équipes ; un membre, les siennes (la RLS l'impose aussi)
+  const isAdmin = ctx.church.role === 'admin' || ctx.church.role === 'responsable'
 
   let teams: { id: string; name: string }[] = []
 
   if (isAdmin) {
-    const { data } = await supabase.from('teams').select('id, name').order('name')
+    const { data } = await supabase.from('teams').select('id, name').eq('church_id', churchId).order('name')
     teams = data ?? []
-  } else {
+  } else if (ctx.memberId) {
     const { data: memberships } = await supabase
       .from('team_members')
       .select('teams(id, name)')
-      .eq('user_id', user.id)
+      .eq('church_id', churchId)
+      .eq('member_id', ctx.memberId)
     teams = (memberships ?? [])
       .map(m => m.teams as unknown as { id: string; name: string })
       .filter(Boolean)
@@ -74,12 +69,13 @@ export default async function GestionPage() {
     { data: todoTasks },
     { data: rawInbox },
   ] = await Promise.all([
-    supabase.from('decisions').select('id, team_id').eq('status', 'pending').in('team_id', teamIds),
-    supabase.from('tasks').select('id, team_id').eq('status', 'todo').in('team_id', teamIds),
+    supabase.from('decisions').select('id, team_id').eq('church_id', churchId).eq('status', 'pending').in('team_id', teamIds),
+    supabase.from('tasks').select('id, team_id').eq('church_id', churchId).eq('status', 'todo').in('team_id', teamIds),
     isAdmin
       ? supabase
           .from('decisions')
           .select('id, title, context, source, created_at')
+          .eq('church_id', churchId)
           .is('team_id', null)
           .eq('status', 'pending')
           .order('created_at', { ascending: false })

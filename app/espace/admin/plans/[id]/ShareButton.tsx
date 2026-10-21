@@ -1,14 +1,20 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import Image from 'next/image'
-import { getOrCreateShareToken, regenerateShareToken } from './share-actions'
+import { createShareLink, getShareLinkStatus, revokeShareLinks, type ShareLinkStatus } from './share-actions'
 
 type Props = { planId: string }
 
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
 export default function ShareButton({ planId }: Props) {
   const [open, setOpen]         = useState(false)
-  const [token, setToken]       = useState<string | null>(null)
+  // Lien en clair : connu seulement juste après sa création
+  const [created, setCreated]   = useState<{ token: string; expiresAt: string } | null>(null)
+  const [status, setStatus]     = useState<ShareLinkStatus | undefined>(undefined)
+  const [error, setError]       = useState(false)
   const [copied, setCopied]     = useState(false)
   const [isPending, startTransition] = useTransition()
 
@@ -18,27 +24,41 @@ export default function ShareButton({ planId }: Props) {
 
   function handleOpen() {
     setOpen(true)
-    if (!token) {
+    setError(false)
+    if (!created) {
       startTransition(async () => {
-        const t = await getOrCreateShareToken(planId)
-        setToken(t)
+        setStatus(await getShareLinkStatus(planId))
       })
     }
   }
 
   function copyLink() {
-    if (!token) return
-    navigator.clipboard.writeText(shareUrl(token)).then(() => {
+    if (!created) return
+    navigator.clipboard.writeText(shareUrl(created.token)).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
   }
 
-  function handleRegenerate() {
-    if (!confirm('Révoquer le lien actuel et en créer un nouveau ?\nL\'ancien lien ne fonctionnera plus.')) return
+  function handleCreate() {
+    if (status && !confirm('Créer un nouveau lien ?\nL\'ancien lien ne fonctionnera plus.')) return
+    setError(false)
     startTransition(async () => {
-      const t = await regenerateShareToken(planId)
-      setToken(t)
+      const link = await createShareLink(planId)
+      if (!link) { setError(true); return }
+      setCreated(link)
+      setStatus({ expiresAt: link.expiresAt })
+    })
+  }
+
+  function handleRevoke() {
+    if (!confirm('Révoquer le lien de partage ?\nIl ne fonctionnera plus.')) return
+    setError(false)
+    startTransition(async () => {
+      const res = await revokeShareLinks(planId)
+      if (!res.ok) { setError(true); return }
+      setCreated(null)
+      setStatus(null)
     })
   }
 
@@ -70,26 +90,15 @@ export default function ShareButton({ planId }: Props) {
               <button onClick={() => setOpen(false)} className="text-dark/30 hover:text-dark text-xl leading-none mt-0.5">×</button>
             </div>
 
-            {isPending && !token ? (
-              <p className="font-sans text-sm text-dark/40 text-center py-4">Génération du lien…</p>
-            ) : token ? (
+            {status === undefined && isPending ? (
+              <p className="font-sans text-sm text-dark/40 text-center py-4">Chargement…</p>
+            ) : created ? (
               <>
-                {/* QR Code */}
-                <div className="flex justify-center">
-                  <Image
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data=${encodeURIComponent(shareUrl(token))}`}
-                    alt="QR Code"
-                    width={180}
-                    height={180}
-                    className="rounded-xl border border-teal/10"
-                  />
-                </div>
-
-                {/* URL copiable */}
+                {/* URL copiable : affichée une seule fois */}
                 <div className="flex gap-2">
                   <input
                     readOnly
-                    value={shareUrl(token)}
+                    value={shareUrl(created.token)}
                     className="flex-1 min-w-0 border border-teal/20 rounded-lg px-3 py-2 font-mono text-xs text-dark/60 bg-teal/5 focus:outline-none focus:ring-2 focus:ring-teal/30"
                   />
                   <button
@@ -103,20 +112,46 @@ export default function ShareButton({ planId }: Props) {
                 </div>
 
                 <p className="font-sans text-[11px] text-dark/35 text-center leading-snug">
-                  Ce lien donne accès aux chants et aux grilles d'accords en lecture seule.
+                  Copie ce lien maintenant : il ne sera plus affiché ensuite.
+                  Il donne accès aux chants et aux grilles d&apos;accords en lecture seule
+                  jusqu&apos;au {formatDate(created.expiresAt)}.
                 </p>
-
-                {/* Révoquer */}
-                <button
-                  onClick={handleRegenerate}
-                  disabled={isPending}
-                  className="w-full py-2 rounded-lg border border-red-200 font-sans text-xs text-red-400 hover:bg-red-50 transition-colors disabled:opacity-40"
-                >
-                  🔄 Révoquer et générer un nouveau lien
-                </button>
               </>
+            ) : status ? (
+              <p className="font-sans text-sm text-dark/60 text-center leading-snug">
+                Un lien de partage est actif jusqu&apos;au {formatDate(status.expiresAt)}.
+                <br />
+                <span className="text-xs text-dark/40">Pour l&apos;envoyer à nouveau, crée un nouveau lien.</span>
+              </p>
             ) : (
-              <p className="font-sans text-sm text-red-400 text-center py-4">Erreur lors de la génération.</p>
+              <p className="font-sans text-sm text-dark/50 text-center leading-snug">
+                Aucun lien actif. Le lien créé reste valable 30 jours.
+              </p>
+            )}
+
+            {error && (
+              <p className="font-sans text-sm text-red-400 text-center">Une erreur est survenue.</p>
+            )}
+
+            {status !== undefined && (
+              <div className="space-y-2">
+                <button
+                  onClick={handleCreate}
+                  disabled={isPending}
+                  className="w-full py-2 rounded-lg bg-teal text-white font-sans text-xs font-medium hover:bg-teal/90 transition-colors disabled:opacity-40"
+                >
+                  {status ? '🔄 Nouveau lien (révoque l\'ancien)' : 'Créer un lien'}
+                </button>
+                {status && (
+                  <button
+                    onClick={handleRevoke}
+                    disabled={isPending}
+                    className="w-full py-2 rounded-lg border border-red-200 font-sans text-xs text-red-400 hover:bg-red-50 transition-colors disabled:opacity-40"
+                  >
+                    Révoquer le lien
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

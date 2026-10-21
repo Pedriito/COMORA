@@ -1,27 +1,29 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidateTag } from 'next/cache'
+import { churchOrNull, type ChurchContext } from '@/lib/auth/church'
+import { PUBLIC_BUCKET, churchFilePath, extensionFor, isChurchPath } from '@/lib/storage'
 
 // Pas de redirect() dans les server actions : un redirect depuis une action
 // provoque une navigation et efface l'état React du composant client.
 // On retourne null en cas d'erreur et le composant gère silencieusement.
-async function getAdminIfAllowed() {
-  try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return null
-    const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-    if (!['admin', 'editor', 'super_admin'].includes(me?.permission ?? '')) return null
-    return createAdminClient()
-  } catch {
-    return null
-  }
+
+/** Taille maximale d'une image d'annonce (celle du bucket) */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+/** Supprime du stockage l'image d'une annonce, si elle appartient bien à l'église courante. */
+async function removeOwnImage(ctx: ChurchContext, imageUrl: string | null | undefined) {
+  if (!imageUrl) return
+  const marker = `/${PUBLIC_BUCKET}/`
+  const i = imageUrl.indexOf(marker)
+  if (i === -1) return
+  const path = decodeURIComponent(imageUrl.slice(i + marker.length).split('?')[0])
+  if (!isChurchPath(ctx.church.churchId, path)) return
+  await ctx.supabase.storage.from(PUBLIC_BUCKET).remove([path])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ANNONCES RÉCURRENTES (globales, apparaissent sur tous les plans)
+// ANNONCES RÉCURRENTES (propres à l'église, apparaissent sur tous ses plans)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type RecurringAnnouncement = {
@@ -38,15 +40,18 @@ export async function addRecurringAnnouncement(
   title: string, body: string,
   imageUrl: string | null = null, videoUrl: string | null = null
 ): Promise<RecurringAnnouncement | null> {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return null
-  const { data: existing } = await admin
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return null
+  const churchId = ctx.church.churchId
+  const { data: existing } = await ctx.supabase
     .from('recurring_announcements')
     .select('order_index')
+    .eq('church_id', churchId)
     .order('order_index', { ascending: false })
     .limit(1)
   const nextIndex = existing?.[0] ? existing[0].order_index + 1 : 0
-  const { data } = await admin.from('recurring_announcements').insert({
+  const { data } = await ctx.supabase.from('recurring_announcements').insert({
+    church_id: churchId,
     title: title.trim() || null, body, order_index: nextIndex,
     image_url: imageUrl, video_url: videoUrl || null, active: true,
   }).select().single()
@@ -58,27 +63,34 @@ export async function updateRecurringAnnouncement(
   id: string, title: string, body: string,
   imageUrl: string | null = null, videoUrl: string | null = null
 ) {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return
-  await admin.from('recurring_announcements')
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return
+  await ctx.supabase.from('recurring_announcements')
     .update({ title: title.trim() || null, body, image_url: imageUrl, video_url: videoUrl || null })
     .eq('id', id)
+    .eq('church_id', ctx.church.churchId)
   revalidateTag('recurring-announcements', 'max')
 }
 
 export async function deleteRecurringAnnouncement(id: string) {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return
-  await admin.from('recurring_announcements').delete().eq('id', id)
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return
+  const churchId = ctx.church.churchId
+  const { data: row } = await ctx.supabase
+    .from('recurring_announcements').select('image_url').eq('id', id).eq('church_id', churchId).maybeSingle()
+  await ctx.supabase.from('recurring_announcements').delete().eq('id', id).eq('church_id', churchId)
+  await removeOwnImage(ctx, row?.image_url)
   revalidateTag('recurring-announcements', 'max')
 }
 
 export async function moveRecurringAnnouncement(id: string, direction: 'up' | 'down') {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return
-  const { data: all } = await admin
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return
+  const churchId = ctx.church.churchId
+  const { data: all } = await ctx.supabase
     .from('recurring_announcements')
     .select('id, order_index')
+    .eq('church_id', churchId)
     .order('order_index')
   if (!all || all.length < 2) return
   const idx = all.findIndex(a => a.id === id)
@@ -87,40 +99,45 @@ export async function moveRecurringAnnouncement(id: string, direction: 'up' | 'd
   if (swapIdx < 0 || swapIdx >= all.length) return
   const a = all[idx], b = all[swapIdx]
   await Promise.all([
-    admin.from('recurring_announcements').update({ order_index: b.order_index }).eq('id', a.id),
-    admin.from('recurring_announcements').update({ order_index: a.order_index }).eq('id', b.id),
+    ctx.supabase.from('recurring_announcements').update({ order_index: b.order_index }).eq('id', a.id).eq('church_id', churchId),
+    ctx.supabase.from('recurring_announcements').update({ order_index: a.order_index }).eq('id', b.id).eq('church_id', churchId),
   ])
   revalidateTag('recurring-announcements', 'max')
 }
 
+/** Dépose une image d'annonce dans le dossier de l'église ; renvoie son URL publique. */
 export async function uploadAnnouncementImage(formData: FormData): Promise<string | null> {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return null
-  const file = formData.get('file') as File | null
-  if (!file) return null
-  const ext  = file.name.split('.').pop() ?? 'jpg'
-  const path = `announcements/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return null
+  const file = formData.get('file')
+  if (!(file instanceof File)) return null
+  // Le type vient de la liste autorisée, jamais du nom du fichier
+  const ext = extensionFor('image', file.type)
+  if (!ext || file.size === 0 || file.size > MAX_IMAGE_BYTES) return null
+  const path = churchFilePath(ctx.church.churchId, 'announcements', ext)
   const buffer = Buffer.from(await file.arrayBuffer())
-  const { error } = await admin.storage.from('media').upload(path, buffer, { contentType: file.type })
+  const { error } = await ctx.supabase.storage.from(PUBLIC_BUCKET).upload(path, buffer, { contentType: file.type })
   if (error) return null
-  const { data } = admin.storage.from('media').getPublicUrl(path)
-  return data.publicUrl
+  return ctx.supabase.storage.from(PUBLIC_BUCKET).getPublicUrl(path).data.publicUrl
 }
 
 export async function addAnnouncement(
   planId: string, title: string, body: string,
   imageUrl: string | null = null, videoUrl: string | null = null
 ) {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return null
-  const { data: existing } = await admin
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return null
+  const churchId = ctx.church.churchId
+  const { data: existing } = await ctx.supabase
     .from('plan_announcements')
     .select('order_index')
+    .eq('church_id', churchId)
     .eq('plan_id', planId)
     .order('order_index', { ascending: false })
     .limit(1)
   const nextIndex = existing?.[0] ? existing[0].order_index + 1 : 0
-  const { data } = await admin.from('plan_announcements').insert({
+  const { data } = await ctx.supabase.from('plan_announcements').insert({
+    church_id: churchId,
     plan_id: planId, title: title.trim() || null, body, order_index: nextIndex,
     image_url: imageUrl, video_url: videoUrl || null,
   }).select().single()
@@ -131,25 +148,33 @@ export async function updateAnnouncement(
   id: string, planId: string, title: string, body: string,
   imageUrl: string | null = null, videoUrl: string | null = null
 ) {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return
-  await admin.from('plan_announcements')
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return
+  await ctx.supabase.from('plan_announcements')
     .update({ title: title.trim() || null, body, image_url: imageUrl, video_url: videoUrl || null })
     .eq('id', id)
+    .eq('plan_id', planId)
+    .eq('church_id', ctx.church.churchId)
 }
 
 export async function deleteAnnouncement(id: string, planId: string) {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return
-  await admin.from('plan_announcements').delete().eq('id', id)
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return
+  const churchId = ctx.church.churchId
+  const { data: row } = await ctx.supabase
+    .from('plan_announcements').select('image_url').eq('id', id).eq('church_id', churchId).maybeSingle()
+  await ctx.supabase.from('plan_announcements').delete().eq('id', id).eq('plan_id', planId).eq('church_id', churchId)
+  await removeOwnImage(ctx, row?.image_url)
 }
 
 export async function moveAnnouncement(id: string, planId: string, direction: 'up' | 'down') {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return
-  const { data: all } = await admin
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return
+  const churchId = ctx.church.churchId
+  const { data: all } = await ctx.supabase
     .from('plan_announcements')
     .select('id, order_index')
+    .eq('church_id', churchId)
     .eq('plan_id', planId)
     .order('order_index')
   if (!all || all.length < 2) return
@@ -159,7 +184,7 @@ export async function moveAnnouncement(id: string, planId: string, direction: 'u
   if (swapIdx < 0 || swapIdx >= all.length) return
   const a = all[idx], b = all[swapIdx]
   await Promise.all([
-    admin.from('plan_announcements').update({ order_index: b.order_index }).eq('id', a.id),
-    admin.from('plan_announcements').update({ order_index: a.order_index }).eq('id', b.id),
+    ctx.supabase.from('plan_announcements').update({ order_index: b.order_index }).eq('id', a.id).eq('church_id', churchId),
+    ctx.supabase.from('plan_announcements').update({ order_index: a.order_index }).eq('id', b.id).eq('church_id', churchId),
   ])
 }

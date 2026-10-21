@@ -1,20 +1,27 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
 import { inviteBenevole } from '../actions'
-import { permissionLabels, frequencyLabels } from '@/lib/labels'
+import { churchRoleLabels, frequencyLabels, roleLabels } from '@/lib/labels'
+
+const errors: Record<string, string> = {
+  invalid: 'Indique au moins un prénom et une adresse e-mail valide.',
+  already_member: 'Cette personne fait déjà partie de l’église.',
+  failed: 'L’invitation n’a pas pu être créée. Réessaie.',
+}
 
 export default async function InviterPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const ctx = await requireChurch('admin')
 
   const params = await searchParams
-  const { data: teams } = await supabase.from('teams').select('id, name').order('name')
+  const { data: teams } = await ctx.supabase
+    .from('teams')
+    .select('id, name')
+    .eq('church_id', ctx.church.churchId)
+    .order('name')
 
   return (
     <div className="min-h-screen bg-teal-50">
@@ -62,9 +69,9 @@ export default async function InviterPage({
 
             <div>
               <label className="block text-sm font-sans text-dark/70 mb-1.5">Niveau d'accès</label>
-              <select name="permission"
+              <select name="role" defaultValue="membre"
                 className="w-full px-4 py-2.5 rounded-lg border border-teal/30 bg-teal-50 text-dark focus:outline-none focus:ring-2 focus:ring-teal/40 font-sans text-sm">
-                {Object.entries(permissionLabels).map(([value, label]) => (
+                {Object.entries(churchRoleLabels).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
               </select>
@@ -96,8 +103,9 @@ export default async function InviterPage({
                       name={`role_${t.id}`}
                       className="px-2 py-1.5 rounded-lg border border-teal/30 bg-teal-50 text-dark font-sans text-xs focus:outline-none focus:ring-2 focus:ring-teal/40"
                     >
-                      <option value="member">Membre</option>
-                      <option value="leader">Responsable</option>
+                      {Object.entries(roleLabels).reverse().map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
                     </select>
                     <select
                       name={`frequency_${t.id}`}
@@ -114,7 +122,7 @@ export default async function InviterPage({
             </div>
 
             {params.error && (
-              <p className="text-sm text-red-500 font-sans">{params.error}</p>
+              <p className="text-sm text-red-500 font-sans">{errors[params.error] ?? errors.failed}</p>
             )}
 
             <button type="submit"

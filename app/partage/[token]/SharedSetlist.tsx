@@ -8,7 +8,7 @@ type Song = {
   planSongId: string
   orderIndex: number
   keySelected: string | null
-  song: { id: number; title: string }
+  song: { id: string; title: string }
   arrangement: {
     id: string; name: string
     chord_chart: string | null; chord_chart_key: string | null

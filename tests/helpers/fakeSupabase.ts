@@ -29,6 +29,8 @@ export function makeFakeSupabase(queues: Record<string, FakeResponse[]>) {
       select: () => builder,
       eq: () => builder,
       neq: () => builder,
+      not: () => builder,
+      is: () => builder,
       gte: () => builder,
       lt: () => builder,
       in: () => builder,

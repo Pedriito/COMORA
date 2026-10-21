@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { requireChurch } from '@/lib/auth/church'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { MemberSearch } from './MemberSearch'
@@ -10,63 +10,65 @@ export default async function TeamPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  const isAdmin = ['admin', 'super_admin'].includes(me?.permission ?? '')
-  const isEditor = me?.permission === 'editor'
+  const ctx = await requireChurch('membre')
+  const supabase = ctx.supabase
+  const churchId = ctx.church.churchId
+  const isCoordinator = ctx.church.role === 'admin' || ctx.church.role === 'responsable'
 
   // Tous les membres de l'équipe peuvent voir la page en lecture seule
-  const { data: myMembership } = await supabase
-    .from('team_members')
-    .select('role')
-    .eq('user_id', user.id)
-    .eq('team_id', id)
-    .single()
+  const { data: myMembership } = ctx.memberId
+    ? await supabase
+        .from('team_members')
+        .select('role')
+        .eq('church_id', churchId)
+        .eq('member_id', ctx.memberId)
+        .eq('team_id', id)
+        .maybeSingle()
+    : { data: null }
 
   const isMember = !!myMembership
   const isLeader = myMembership?.role === 'leader'
-  const canEdit = isAdmin || (isEditor && isLeader)
+  const canEdit = isCoordinator || isLeader
 
-  if (!isAdmin && !isEditor && !isMember) redirect('/espace/dashboard')
+  if (!isCoordinator && !isMember) redirect('/espace/dashboard')
 
-  const [{ data: team }, { data: positions }, { data: members }, { data: allProfiles }] = await Promise.all([
-    supabase.from('teams').select('id, name').eq('id', id).single(),
-    supabase.from('positions').select('id, name').eq('team_id', id).order('name'),
+  const [{ data: team }, { data: positions }, { data: members }, { data: allMembers }] = await Promise.all([
+    supabase.from('teams').select('id, name').eq('church_id', churchId).eq('id', id).maybeSingle(),
+    supabase.from('positions').select('id, name').eq('church_id', churchId).eq('team_id', id).order('name'),
     supabase
       .from('team_members')
-      .select('user_id, role, frequency, profiles(id, first_name, last_name)')
+      .select('member_id, role, frequency, members(id, first_name, last_name)')
+      .eq('church_id', churchId)
       .eq('team_id', id)
       .order('role'),
-    supabase.from('profiles').select('id, first_name, last_name').order('first_name'),
+    supabase.from('members').select('id, first_name, last_name').eq('church_id', churchId).order('first_name'),
   ])
 
-  if (!team) redirect('/espace/admin/equipes')
+  if (!team) redirect(canEdit && isCoordinator ? '/espace/admin/equipes' : '/espace/dashboard')
 
   // Tri alphabétique par nom à l'intérieur de chaque rôle
   const sortedMembers = (members ?? []).sort((a, b) => {
     if (a.role !== b.role) return a.role.localeCompare(b.role)
-    const pa = a.profiles as { last_name?: string; first_name?: string } | null
-    const pb = b.profiles as { last_name?: string; first_name?: string } | null
+    const pa = a.members as unknown as { last_name?: string; first_name?: string } | null
+    const pb = b.members as unknown as { last_name?: string; first_name?: string } | null
     return (pa?.last_name ?? '').localeCompare(pb?.last_name ?? '', 'fr') ||
            (pa?.first_name ?? '').localeCompare(pb?.first_name ?? '', 'fr')
   })
 
-  const memberIds = new Set(sortedMembers.map(m => m.user_id))
-  const nonMembers = allProfiles?.filter(p => !memberIds.has(p.id)) ?? []
+  const memberIds = new Set(sortedMembers.map(m => m.member_id))
+  const nonMembers = allMembers?.filter(p => !memberIds.has(p.id)) ?? []
 
   // Positions par membre
   const memberPositions: Record<string, Set<string>> = {}
   if (sortedMembers.length) {
     const { data: mp } = await supabase
       .from('member_positions')
-      .select('user_id, position_id')
-      .in('user_id', sortedMembers.map(m => m.user_id))
+      .select('member_id, position_id')
+      .eq('church_id', churchId)
+      .in('member_id', sortedMembers.map(m => m.member_id))
     mp?.forEach(p => {
-      if (!memberPositions[p.user_id]) memberPositions[p.user_id] = new Set()
-      memberPositions[p.user_id].add(p.position_id)
+      if (!memberPositions[p.member_id]) memberPositions[p.member_id] = new Set()
+      memberPositions[p.member_id].add(p.position_id)
     })
   }
 
@@ -74,7 +76,7 @@ export default async function TeamPage({
     <div className="min-h-screen bg-teal-50">
       <header className="bg-white border-b border-teal/20 px-6 pb-4 flex items-center gap-4" style={{ paddingTop: 'max(env(safe-area-inset-top, 0px) + 16px, 16px)' }}>
         <Link
-          href={canEdit ? '/espace/admin/equipes' : '/espace/dashboard'}
+          href={isCoordinator ? '/espace/admin/equipes' : '/espace/dashboard'}
           className="text-dark/40 hover:text-dark transition-colors font-sans text-sm"
         >
           ←
@@ -89,11 +91,11 @@ export default async function TeamPage({
           <h2 className="font-display text-xl text-dark font-light mb-3">Membres</h2>
           <MemberList
             teamId={id}
-            members={sortedMembers as any}
+            members={sortedMembers as unknown as Parameters<typeof MemberList>[0]['members']}
             positions={positions ?? []}
             memberPositions={memberPositions}
             readOnly={!canEdit}
-            canEditRoles={isAdmin}
+            canEditRoles={isCoordinator}
           />
         </section>
 
@@ -101,7 +103,7 @@ export default async function TeamPage({
         {canEdit && nonMembers.length > 0 && (
           <section>
             <h2 className="font-display text-xl text-dark font-light mb-3">Ajouter un membre</h2>
-            <MemberSearch teamId={id} profiles={nonMembers} />
+            <MemberSearch teamId={id} members={nonMembers} />
           </section>
         )}
       </main>

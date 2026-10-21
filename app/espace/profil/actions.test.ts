@@ -3,47 +3,55 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // `redirect()` de Next.js interrompt l'exécution en lançant une exception spéciale — on
 // reproduit ce comportement pour que le test puisse la capturer tout en vérifiant l'écriture
 // faite juste avant.
-const { redirectMock, createClientMock } = vi.hoisted(() => ({
+const { redirectMock, createClientMock, getChurchContextMock } = vi.hoisted(() => ({
   redirectMock: vi.fn((url: string) => { throw new Error(`NEXT_REDIRECT:${url}`) }),
   createClientMock: vi.fn(),
+  getChurchContextMock: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ redirect: redirectMock }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
+vi.mock('@/lib/auth/church', () => ({ getChurchContext: getChurchContextMock }))
 
 const { saveProfile } = await import('./actions')
 
-type ProfilePayload = Record<string, unknown>
+type Payload = Record<string, unknown>
+type Write = { table: string; op: 'update' | 'upsert'; payload: Payload }
 
 /**
- * Client Supabase "cookie" minimal : auth.getUser() + `.from('profiles').update(...).eq(...)`,
- * en mémorisant le payload réellement envoyé à `.update()`.
+ * Client Supabase minimal : auth.getUser(), updateUser() et les écritures
+ * `.update(...).eq(...)` / `.upsert(...)`, en mémorisant ce qui est envoyé.
  */
-function fakeProfileClient(opts: {
+function fakeClient(opts: {
   user?: { id: string; email: string } | null
-  updateError?: { message: string } | null
+  failTable?: string
   updateUserError?: { message: string } | null
+  memberId?: string | null
 } = {}) {
-  const { user = { id: 'user-1', email: 'alice@example.fr' }, updateError = null, updateUserError = null } = opts
-  const updates: { table: string; payload: ProfilePayload }[] = []
+  const { user = { id: 'user-1', email: 'alice@example.fr' }, failTable, updateUserError = null, memberId = 'member-1' } = opts
+  const writes: Write[] = []
   const updateUser = vi.fn(() => Promise.resolve({ error: updateUserError }))
+  const result = (table: string) => Promise.resolve({ error: table === failTable ? { message: 'boom' } : null })
 
-  return {
-    updates,
-    updateUser,
-    client: {
-      auth: {
-        getUser: () => Promise.resolve({ data: { user } }),
-        updateUser,
+  const client = {
+    auth: { getUser: () => Promise.resolve({ data: { user } }), updateUser },
+    from: (table: string) => ({
+      update: (payload: Payload) => {
+        writes.push({ table, op: 'update', payload })
+        const chain: { eq: () => typeof chain } & PromiseLike<{ error: unknown }> = {
+          eq: () => chain,
+          then: (res, rej) => result(table).then(res, rej),
+        }
+        return chain
       },
-      from: (table: string) => ({
-        update: (payload: ProfilePayload) => {
-          updates.push({ table, payload })
-          return { eq: () => Promise.resolve({ error: updateError }) }
-        },
-      }),
-    },
+      upsert: (payload: Payload) => {
+        writes.push({ table, op: 'upsert', payload })
+        return result(table)
+      },
+    }),
   }
+  getChurchContextMock.mockResolvedValue(memberId ? { memberId, church: { churchId: 'church-1' } } : { memberId: null, church: { churchId: 'church-1' } })
+  return { writes, updateUser, client }
 }
 
 function fd(entries: Record<string, string>) {
@@ -52,7 +60,6 @@ function fd(entries: Record<string, string>) {
   return f
 }
 
-/** Profil complet valide, dont on ne fait varier qu'un champ à la fois dans les tests. */
 function profileForm(overrides: Record<string, string> = {}) {
   return fd({
     first_name: 'Alice',
@@ -66,156 +73,129 @@ function profileForm(overrides: Record<string, string> = {}) {
   })
 }
 
-/** Exécute l'action en absorbant l'exception de `redirect()`, et renvoie l'URL redirigée. */
 async function run(client: unknown, form: FormData): Promise<string> {
   createClientMock.mockResolvedValue(client)
   await expect(saveProfile(form)).rejects.toThrow('NEXT_REDIRECT')
   return redirectMock.mock.calls.at(-1)![0]
 }
 
+const memberWrite = (w: Write[]) => w.find(x => x.table === 'members')!
+const contactWrite = (w: Write[]) => w.find(x => x.table === 'member_contacts')!
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
 describe('saveProfile — rythme souhaité (desired_frequency)', () => {
-  // Ce champ alimente l'algorithme d'auto-remplissage : s'il n'est pas persisté,
-  // le bénévole est traité comme « sans préférence ».
   it.each(['as_needed', 'twice_month', 'every_6_weeks', 'monthly', 'weekly'])(
-    'enregistre la valeur « %s » envoyée dans le formulaire',
+    'enregistre la valeur « %s » sur la fiche de la personne',
     async (frequency) => {
-      const fake = fakeProfileClient()
+      const fake = fakeClient()
       await run(fake.client, profileForm({ desired_frequency: frequency }))
-
-      expect(fake.updates).toHaveLength(1)
-      expect(fake.updates[0].table).toBe('profiles')
-      expect(fake.updates[0].payload).toMatchObject({ desired_frequency: frequency })
+      expect(memberWrite(fake.writes).payload).toMatchObject({ desired_frequency: frequency })
     }
   )
 
-  // Le formulaire n'expose qu'une liste déroulante, mais une requête forgée peut envoyer
-  // n'importe quoi. La valeur doit être rejetée AVANT la base : l'écriture du profil a lieu
-  // après la demande de changement d'email, donc un rejet par la contrainte CHECK laisserait
-  // l'email engagé sans que le profil soit enregistré.
-  it('ramène à `null` une valeur hors de la liste autorisée, sans la transmettre à la base', async () => {
-    const fake = fakeProfileClient()
-    await run(fake.client, profileForm({ desired_frequency: 'chaque_heure' }))
-
-    expect(fake.updates).toHaveLength(1)
-    expect(fake.updates[0].payload.desired_frequency).toBeNull()
+  // Une requête forgée peut envoyer n'importe quoi : rejeté avant la base.
+  it.each([
+    ['hors liste', 'chaque_heure'],
+    ['vide', ''],
+    ['espaces', '   '],
+    ['clé héritée du prototype', 'constructor'],
+  ])('enregistre `null` pour une valeur %s', async (_label, value) => {
+    const fake = fakeClient()
+    await run(fake.client, profileForm({ desired_frequency: value }))
+    expect(memberWrite(fake.writes).payload.desired_frequency).toBeNull()
   })
 
-  // La contrainte CHECK en base n'accepte que les valeurs de la liste ou NULL : une chaîne
-  // vide ferait échouer toute la mise à jour du profil.
-  it('enregistre `null` (et non une chaîne vide) quand aucun rythme n’est choisi', async () => {
-    const fake = fakeProfileClient()
-    await run(fake.client, profileForm({ desired_frequency: '' }))
-
-    expect(fake.updates[0].payload.desired_frequency).toBeNull()
-  })
-
-  it('enregistre `null` quand le champ est absent du formulaire', async () => {
+  it('enregistre `null` quand le champ est absent', async () => {
     const form = profileForm()
     form.delete('desired_frequency')
-
-    const fake = fakeProfileClient()
+    const fake = fakeClient()
     await run(fake.client, form)
-
-    expect(fake.updates[0].payload.desired_frequency).toBeNull()
-  })
-
-  it('enregistre `null` quand le champ ne contient que des espaces', async () => {
-    const fake = fakeProfileClient()
-    await run(fake.client, profileForm({ desired_frequency: '   ' }))
-
-    expect(fake.updates[0].payload.desired_frequency).toBeNull()
+    expect(memberWrite(fake.writes).payload.desired_frequency).toBeNull()
   })
 })
 
-describe('saveProfile — non-régression des autres champs', () => {
-  it('enregistre tous les champs du profil et le marque comme complété', async () => {
-    const fake = fakeProfileClient()
+describe('saveProfile — écritures', () => {
+  it('met à jour le compte, sa propre fiche et ses coordonnées dans l’église courante', async () => {
+    const fake = fakeClient()
     await run(fake.client, profileForm())
 
-    expect(fake.updates[0].payload).toEqual({
-      first_name: 'Alice',
-      last_name: 'Martin',
-      phone: '0612345678',
-      birthdate: '1990-05-17',
-      city: 'Nantes',
-      desired_frequency: 'twice_month',
+    expect(fake.writes.find(w => w.table === 'profiles')!.payload).toEqual({ first_name: 'Alice', last_name: 'Martin' })
+    expect(memberWrite(fake.writes).payload).toEqual({ first_name: 'Alice', last_name: 'Martin', desired_frequency: 'twice_month' })
+    expect(contactWrite(fake.writes).payload).toMatchObject({
+      member_id: 'member-1',
+      church_id: 'church-1',
       email: 'alice@example.fr',
-      profile_complete: true,
+      phone: '0612345678',
+      city: 'Nantes',
+      birthdate: '1990-05-17',
     })
   })
 
   it('nettoie les espaces autour des champs texte', async () => {
-    const fake = fakeProfileClient()
+    const fake = fakeClient()
     await run(fake.client, profileForm({ first_name: '  Alice  ', last_name: ' Martin ', city: ' Nantes ' }))
-
-    expect(fake.updates[0].payload).toMatchObject({ first_name: 'Alice', last_name: 'Martin', city: 'Nantes' })
+    expect(memberWrite(fake.writes).payload).toMatchObject({ first_name: 'Alice', last_name: 'Martin' })
+    expect(contactWrite(fake.writes).payload).toMatchObject({ city: 'Nantes' })
   })
 
-  it('enregistre `null` pour les champs optionnels laissés vides', async () => {
-    const fake = fakeProfileClient()
+  it('enregistre `null` pour les champs optionnels vides, dont la date de naissance', async () => {
+    const fake = fakeClient()
     await run(fake.client, profileForm({ phone: '', birthdate: '', city: '' }))
+    expect(contactWrite(fake.writes).payload).toMatchObject({ phone: null, birthdate: null, city: null })
+  })
 
-    expect(fake.updates[0].payload).toMatchObject({ phone: null, birthdate: null, city: null })
+  it('ignore une date de naissance mal formée', async () => {
+    const fake = fakeClient()
+    await run(fake.client, profileForm({ birthdate: 'pas-une-date' }))
+    expect(contactWrite(fake.writes).payload.birthdate).toBeNull()
+  })
+
+  it('n’écrit pas de fiche quand le compte n’a pas de personne dans cette église', async () => {
+    const fake = fakeClient({ memberId: null })
+    await run(fake.client, profileForm())
+    expect(fake.writes.map(w => w.table)).toEqual(['profiles'])
   })
 
   it("ne touche pas à l'email d'authentification quand il est inchangé", async () => {
-    const fake = fakeProfileClient()
+    const fake = fakeClient()
     await run(fake.client, profileForm())
-
     expect(fake.updateUser).not.toHaveBeenCalled()
-    expect(fake.updates[0].payload).toMatchObject({ email: 'alice@example.fr' })
   })
 
-  it('demande le changement d’email et enregistre la nouvelle adresse quand elle change', async () => {
-    const fake = fakeProfileClient()
+  it('demande le changement d’email et enregistre la nouvelle adresse de contact', async () => {
+    const fake = fakeClient()
     await run(fake.client, profileForm({ email: 'nouvelle@example.fr' }))
-
     expect(fake.updateUser).toHaveBeenCalledWith({ email: 'nouvelle@example.fr' })
-    expect(fake.updates[0].payload).toMatchObject({ email: 'nouvelle@example.fr' })
+    expect(contactWrite(fake.writes).payload).toMatchObject({ email: 'nouvelle@example.fr' })
   })
 })
 
 describe('saveProfile — redirections', () => {
-  it('renvoie vers le tableau de bord après un enregistrement sans changement d’email', async () => {
-    const fake = fakeProfileClient()
-    const url = await run(fake.client, profileForm())
-
-    expect(url).toBe('/espace/dashboard')
+  it('renvoie vers le tableau de bord après un enregistrement', async () => {
+    expect(await run(fakeClient().client, profileForm())).toBe('/espace/dashboard')
   })
 
   it('renvoie vers le profil avec `email_sent=1` quand un email de confirmation est parti', async () => {
-    const fake = fakeProfileClient()
-    const url = await run(fake.client, profileForm({ email: 'nouvelle@example.fr' }))
-
-    expect(url).toBe('/espace/profil?email_sent=1')
+    expect(await run(fakeClient().client, profileForm({ email: 'nouvelle@example.fr' }))).toBe('/espace/profil?email_sent=1')
   })
 
   it('renvoie `error=email_taken` si la nouvelle adresse est déjà utilisée — sans rien écrire', async () => {
-    const fake = fakeProfileClient({ updateUserError: { message: 'Email address already registered' } })
-    const url = await run(fake.client, profileForm({ email: 'prise@example.fr' }))
-
-    expect(url).toBe('/espace/profil?error=email_taken')
-    expect(fake.updates).toEqual([])
+    const fake = fakeClient({ updateUserError: { message: 'Email address already registered' } })
+    expect(await run(fake.client, profileForm({ email: 'prise@example.fr' }))).toBe('/espace/profil?error=email_taken')
+    expect(fake.writes).toEqual([])
   })
 
-  it('renvoie `error=failed` si la mise à jour du profil échoue en base', async () => {
-    const fake = fakeProfileClient({
-      updateError: { message: 'new row violates check constraint "profiles_desired_frequency_check"' },
-    })
-    const url = await run(fake.client, profileForm())
-
-    expect(url).toBe('/espace/profil?error=failed')
+  it.each(['profiles', 'members', 'member_contacts'])('renvoie `error=failed` si l’écriture de « %s » échoue', async (table) => {
+    const fake = fakeClient({ failTable: table })
+    expect(await run(fake.client, profileForm())).toBe('/espace/profil?error=failed')
   })
 
   it("renvoie vers la page de connexion si personne n'est authentifié — sans rien écrire", async () => {
-    const fake = fakeProfileClient({ user: null })
-    const url = await run(fake.client, profileForm())
-
-    expect(url).toBe('/espace/login')
-    expect(fake.updates).toEqual([])
+    const fake = fakeClient({ user: null })
+    expect(await run(fake.client, profileForm())).toBe('/espace/login')
+    expect(fake.writes).toEqual([])
   })
 })

@@ -1,21 +1,11 @@
 'use server'
 
-import { createAdminClient } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
+import { requireChurch } from '@/lib/auth/church'
 import { redirect } from 'next/navigation'
 import { revalidatePath, revalidateTag } from 'next/cache'
 
-async function requireAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-  const { data: profile } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'editor', 'super_admin'].includes(profile?.permission ?? '')) redirect('/espace/dashboard')
-  return createAdminClient()
-}
-
 export async function createSong(formData: FormData) {
-  const admin = await requireAdmin()
+  const { supabase, church } = await requireChurch('responsable')
 
   const title      = (formData.get('title') as string).trim()
   const chartKey   = (formData.get('chord_chart_key') as string).trim() || null
@@ -27,16 +17,17 @@ export async function createSong(formData: FormData) {
   if (!title) redirect('/espace/admin/chants/nouveau?error=titre_manquant')
 
   // 1. Créer le chant
-  const { data: song, error: songErr } = await admin
+  const { data: song, error: songErr } = await supabase
     .from('songs')
-    .insert({ title })
+    .insert({ church_id: church.churchId, title })
     .select('id')
     .single()
 
   if (songErr || !song) redirect(`/espace/admin/chants/nouveau?error=${encodeURIComponent(songErr?.message ?? 'erreur')}`)
 
   // 2. Créer l'arrangement
-  await admin.from('arrangements').insert({
+  await supabase.from('arrangements').insert({
+    church_id:       church.churchId,
     song_id:         song.id,
     name:            arrName,
     chord_chart:     chart,
@@ -52,9 +43,9 @@ export async function createSong(formData: FormData) {
 }
 
 export async function updateSong(formData: FormData) {
-  const admin = await requireAdmin()
+  const { supabase, church } = await requireChurch('responsable')
 
-  const songId        = parseInt(formData.get('song_id') as string, 10)
+  const songId        = formData.get('song_id') as string
   const arrangementId = formData.get('arrangement_id') as string
   const title         = (formData.get('title') as string).trim()
   const chartKey      = (formData.get('chord_chart_key') as string).trim() || null
@@ -63,17 +54,20 @@ export async function updateSong(formData: FormData) {
   const youtubeUrl    = (formData.get('youtube_url') as string)?.trim() || null
   const audioUrl      = (formData.get('audio_url') as string)?.trim() || null
 
+  if (!songId) redirect('/espace/admin/chants')
   if (!title) redirect(`/espace/admin/chants/${songId}/modifier?error=titre_manquant`)
 
   await Promise.all([
-    admin.from('songs').update({ title }).eq('id', songId),
-    admin.from('arrangements').update({
-      name:            arrName,
-      chord_chart:     chart,
-      chord_chart_key: chartKey,
-      youtube_url:     youtubeUrl,
-      audio_url:       audioUrl,
-    }).eq('id', arrangementId),
+    supabase.from('songs').update({ title }).eq('id', songId).eq('church_id', church.churchId),
+    arrangementId
+      ? supabase.from('arrangements').update({
+          name:            arrName,
+          chord_chart:     chart,
+          chord_chart_key: chartKey,
+          youtube_url:     youtubeUrl,
+          audio_url:       audioUrl,
+        }).eq('id', arrangementId).eq('song_id', songId).eq('church_id', church.churchId)
+      : Promise.resolve(),
   ])
 
   revalidatePath('/espace/admin/chants')
@@ -84,11 +78,12 @@ export async function updateSong(formData: FormData) {
 }
 
 export async function deleteSong(formData: FormData) {
-  const admin = await requireAdmin()
-  const songId = parseInt(formData.get('song_id') as string, 10)
+  const { supabase, church } = await requireChurch('responsable')
+  const songId = formData.get('song_id') as string
+  if (!songId) redirect('/espace/admin/chants')
 
   // Les arrangements sont supprimés en cascade (FK)
-  await admin.from('songs').delete().eq('id', songId)
+  await supabase.from('songs').delete().eq('id', songId).eq('church_id', church.churchId)
 
   revalidatePath('/espace/admin/chants')
   revalidatePath('/espace/chants')

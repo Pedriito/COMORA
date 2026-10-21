@@ -1,9 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
-
-const INVITE_EXT_ID = '00000000-0000-0000-0000-000000000001'
 
 function rate(confirmed: number, responded: number) {
   if (responded === 0) return null
@@ -29,46 +25,43 @@ function RateBar({ confirmed, declined, pending }: { confirmed: number; declined
 }
 
 export default async function StatsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'editor', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
-
-  const admin = createAdminClient()
+  const ctx = await requireChurch('responsable')
+  const db = ctx.supabase
+  const churchId = ctx.church.churchId
   const now = new Date().toISOString()
 
   const [
     { data: pastPlans },
     { data: allPlans },
     { data: teams },
-    { data: activeProfiles },
+    { data: activeMembers },
     { data: teamMemberships },
   ] = await Promise.all([
-    admin.from('plans').select('id').lt('service_date', now),
-    admin.from('plans').select('id'),
-    admin.from('teams').select('id, name').order('name'),
-    admin.from('profiles').select('id').eq('status', 'active').neq('id', INVITE_EXT_ID),
-    admin.from('team_members').select('user_id, team_id'),
+    db.from('plans').select('id').eq('church_id', churchId).lt('service_date', now),
+    db.from('plans').select('id').eq('church_id', churchId),
+    db.from('teams').select('id, name').eq('church_id', churchId).order('name'),
+    db.from('members').select('id').eq('church_id', churchId).eq('status', 'active'),
+    db.from('team_members').select('member_id, team_id').eq('church_id', churchId),
   ])
 
   const pastPlanIds = pastPlans?.map(p => p.id) ?? []
 
   // Affectations des services passés (pour les stats de confirmation)
   const { data: pastAssignments } = pastPlanIds.length
-    ? await admin
+    ? await db
         .from('plan_assignments')
-        .select('id, status, user_id, team_id, profiles(first_name, last_name)')
+        .select('id, status, member_id, team_id, external_name, members(first_name, last_name)')
+        .eq('church_id', churchId)
         .in('plan_id', pastPlanIds)
     : { data: [] }
 
   // Affectations futures (pour stats à venir)
   const futurePlanIds = (allPlans ?? []).map(p => p.id).filter(id => !pastPlanIds.includes(id))
   const { data: futureAssignments } = futurePlanIds.length
-    ? await admin
+    ? await db
         .from('plan_assignments')
-        .select('id, status, user_id, team_id')
+        .select('id, status, member_id, team_id')
+        .eq('church_id', churchId)
         .in('plan_id', futurePlanIds)
     : { data: [] }
 
@@ -82,7 +75,7 @@ export default async function StatsPage() {
   const globalConfirmed = past.filter(a => a.status === 'confirmed').length
   const globalDeclined = past.filter(a => a.status === 'declined').length
   const globalRate = rate(globalConfirmed, globalConfirmed + globalDeclined)
-  const pendingFuture = future.filter(a => a.status === 'pending' && a.user_id !== INVITE_EXT_ID).length
+  const pendingFuture = future.filter(a => a.status === 'pending' && a.member_id !== null).length
 
   // ── Par équipe ───────────────────────────────────────────────────
   // Nombre de membres par équipe
@@ -115,20 +108,21 @@ export default async function StatsPage() {
   const volMap: Record<string, VolStat> = {}
 
   past.forEach(a => {
-    if (a.user_id === INVITE_EXT_ID) return
-    const profile = a.profiles as unknown as { first_name: string; last_name: string } | null
-    if (!volMap[a.user_id]) {
-      volMap[a.user_id] = {
-        userId: a.user_id,
+    // Invités externes (sans personne de l'église) : hors classement
+    if (!a.member_id) return
+    const profile = a.members as unknown as { first_name: string; last_name: string } | null
+    if (!volMap[a.member_id]) {
+      volMap[a.member_id] = {
+        userId: a.member_id,
         name: profile ? `${profile.first_name} ${profile.last_name}` : '—',
         confirmed: 0,
         total: 0,
         declined: 0,
       }
     }
-    volMap[a.user_id].total++
-    if (a.status === 'confirmed') volMap[a.user_id].confirmed++
-    if (a.status === 'declined') volMap[a.user_id].declined++
+    volMap[a.member_id].total++
+    if (a.status === 'confirmed') volMap[a.member_id].confirmed++
+    if (a.status === 'declined') volMap[a.member_id].declined++
   })
 
   const topVols = Object.values(volMap)
@@ -153,7 +147,7 @@ export default async function StatsPage() {
             {[
               { label: 'Services total', value: totalServices },
               { label: 'Services passés', value: totalPastServices },
-              { label: 'Bénévoles actifs', value: activeProfiles?.length ?? 0 },
+              { label: 'Bénévoles actifs', value: activeMembers?.length ?? 0 },
               { label: 'Réponses en attente', value: pendingFuture },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-teal/20 p-5 text-center">

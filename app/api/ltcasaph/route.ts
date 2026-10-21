@@ -1,4 +1,6 @@
 import { NextRequest } from 'next/server'
+import { getChurchContext } from '@/lib/auth/church'
+import { cleanQuery, cleanSongId } from './params'
 
 const BASE = 'https://db.ltc-asaph.com'
 
@@ -9,22 +11,28 @@ type SongEntry = {
   authors: { name: string }[]
 }
 
+/** Proxy vers la base LTC Asaph (import de chants), réservé aux comptes membres d'une église. */
 export async function GET(req: NextRequest) {
+  const ctx = await getChurchContext()
+  if (!ctx) return Response.json({ error: 'Connexion requise' }, { status: 401 })
+
   const { searchParams } = req.nextUrl
   const action = searchParams.get('action')
 
   try {
     // ── Recherche ────────────────────────────────────────────────────────────
     if (action === 'search') {
-      const q = searchParams.get('q') ?? ''
-      if (!q.trim()) return Response.json({ results: [] })
+      if (!(searchParams.get('q') ?? '').trim()) return Response.json({ results: [] })
+      const q = cleanQuery(searchParams.get('q'))
+      if (!q) return Response.json({ error: 'Recherche invalide' }, { status: 400 })
 
       const [searchRes, songsRes] = await Promise.all([
         fetch(`${BASE}/json/songs/search?s=${encodeURIComponent(q)}`, { next: { revalidate: 0 } }),
         fetch(`${BASE}/json/songs.json`, { next: { revalidate: 3600 } }),
       ])
+      if (!searchRes.ok || !songsRes.ok) return Response.json({ error: 'Source indisponible' }, { status: 502 })
       const indices: number[] = await searchRes.json()
-      if (!indices.length) return Response.json({ results: [] })
+      if (!Array.isArray(indices) || !indices.length) return Response.json({ results: [] })
       const songs: Record<string, SongEntry> = await songsRes.json()
 
       const results = indices.slice(0, 15).map(idx => {
@@ -42,8 +50,8 @@ export async function GET(req: NextRequest) {
 
     // ── Récupérer le détail d'un chant (legacy_id) ──────────────────────────
     if (action === 'fetch') {
-      const id = searchParams.get('id') ?? ''
-      if (!id) return Response.json({ error: 'id manquant' }, { status: 400 })
+      const id = cleanSongId(searchParams.get('id'))
+      if (!id) return Response.json({ error: 'Identifiant invalide' }, { status: 400 })
 
       const res = await fetch(`${BASE}/json/songs/${id}`, {
         headers: { 'Accept': 'application/json' },
@@ -67,7 +75,7 @@ export async function GET(req: NextRequest) {
     }
 
     return Response.json({ error: 'action inconnue' }, { status: 400 })
-  } catch (e: unknown) {
-    return Response.json({ error: (e as Error).message }, { status: 500 })
+  } catch {
+    return Response.json({ error: 'Source indisponible' }, { status: 502 })
   }
 }

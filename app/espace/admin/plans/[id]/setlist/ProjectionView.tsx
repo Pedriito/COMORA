@@ -15,7 +15,7 @@ type Song = {
   planSongId: string
   orderIndex: number
   keySelected: string | null
-  song: { id: number; title: string }
+  song: { id: string; title: string }
   arrangement: {
     id: string; name: string
     chord_chart: string | null; chord_chart_key: string | null
@@ -28,6 +28,7 @@ type PlanVideo = { id: string; title: string | null; url: string; order_index: n
 
 type Props = {
   planId: string
+  churchId: string
   songs: Song[]
   announcements: Announcement[]
   sermons: Sermon[]
@@ -39,7 +40,7 @@ type Props = {
 
 function slideKey(si: number, di: number) { return `${si}-${di}` }
 
-export function ProjectionView({ planId, songs, announcements, sermons, videos, initialSongIdx, preOpenedWindow, onClose }: Props) {
+export function ProjectionView({ planId, churchId, songs, announcements, sermons, videos, initialSongIdx, preOpenedWindow, onClose }: Props) {
   const router = useRouter()
   const [current, setCurrent]           = useState({ songIdx: initialSongIdx, slideIdx: 0 })
   const [projectorReady, setProjectorReady] = useState(false)
@@ -163,7 +164,7 @@ export function ProjectionView({ planId, songs, announcements, sermons, videos, 
       planSongId: `extra-${Date.now()}`,
       orderIndex: allSongs.length,
       keySelected: result.arrangement?.chord_chart_key ?? null,
-      song: { id: result.songId, title: result.title },
+      song: { id: String(result.songId), title: result.title },
       arrangement: result.arrangement
         ? { id: result.arrangement.id, name: result.arrangement.name, chord_chart: result.arrangement.chord_chart, chord_chart_key: result.arrangement.chord_chart_key }
         : null,
@@ -216,9 +217,9 @@ export function ProjectionView({ planId, songs, announcements, sermons, videos, 
   // Charger les médias depuis Supabase
   useEffect(() => {
     const supabase = createClient()
-    supabase.from('media_files').select('id, name, url').eq('type', 'image').order('created_at', { ascending: false })
+    supabase.from('media_files').select('id, name, url').eq('church_id', churchId).eq('type', 'image').order('created_at', { ascending: false })
       .then(({ data }) => { if (data) setMediaFiles(data) })
-  }, [])
+  }, [churchId])
 
   // BroadcastChannel
   useEffect(() => {

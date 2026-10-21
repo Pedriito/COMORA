@@ -55,13 +55,13 @@ function buildManyTeams(teamCount: number, positionsPerTeam: number, candidatesP
         assignments.push({
           id: `a-${posId}`,
           status: 'confirmed',
-          user_id: uid,
+          member_id: uid,
           position_id: posId,
           team_id: `team-${t}`,
           external_name: null,
           external_email: null,
           invitation_sent_at: null,
-          profiles: { first_name: 'Vol', last_name: String(uidSeq) },
+          members: { first_name: 'Vol', last_name: String(uidSeq) },
           positions: { id: posId, name: label, team_id: `team-${t}` },
           unavailable: false,
         })
@@ -136,7 +136,7 @@ describe('Planification — fluidité du flux « affecter / retirer un bénévol
 
     render(
       <Profiler id="planning" onRender={onRender}>
-        <PlanWorkspace planId="plan-1" detail={detail} userId="viewer-1" isAdmin returnTo="/espace/admin/plans" />
+        <PlanWorkspace planId="plan-1" detail={detail} memberId="viewer-1" isAdmin returnTo="/espace/admin/plans" />
       </Profiler>
     )
 
@@ -198,7 +198,7 @@ describe('Planification — fluidité du flux « affecter / retirer un bénévol
     const { proxy: teamsProxy, counts } = makeCountingArray(rawTeams)
     const detail = buildDetail(teamsProxy)
 
-    render(<PlanWorkspace planId="plan-1" detail={detail} userId="viewer-1" isAdmin returnTo="/espace/admin/plans" />)
+    render(<PlanWorkspace planId="plan-1" detail={detail} memberId="viewer-1" isAdmin returnTo="/espace/admin/plans" />)
 
     expect(counts.filter).toBe(1)
     fireEvent.click(screen.getByText('Équipe 5'))

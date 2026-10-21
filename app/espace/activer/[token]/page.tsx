@@ -1,48 +1,20 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { redirect } from 'next/navigation'
-import { siteUrl as getSiteUrl } from '@/lib/site'
+import { hashToken, isWellFormedToken } from '@/lib/tokens'
 import { Logo } from '@/components/brand/logo'
+import { activateAccount } from './actions'
 
-async function activate(formData: FormData) {
-  'use server'
-  const token = formData.get('token') as string
-  const admin = createAdminClient()
-
-  const { data: invite } = await admin
-    .from('pending_invites')
-    .select('*')
-    .eq('token', token)
-    .single()
-
-  if (!invite || (invite.expires_at != null && new Date(invite.expires_at) < new Date())) {
-    redirect('/espace/login?error=expired')
-  }
-
-  await admin.from('pending_invites').delete().eq('token', token)
-
-  const siteUrl = getSiteUrl()
-
-  // Si l'email est stocké (nouvelle version) → lien régénéré à la volée, jamais expiré
-  const email = invite.email ?? null
-  if (email) {
-    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-      type: 'recovery',
-      email,
-      options: { redirectTo: `${siteUrl}/espace/auth/confirm` },
-    })
-    if (linkData?.properties?.action_link) {
-      redirect(linkData.properties.action_link)
-    }
-    console.error('[activate] generateLink failed:', linkError?.message)
-  }
-
-  // Fallback : ancienne version — utilise l'action_link stocké (peut être expiré si > 1h)
-  const actionLink = invite.action_link ?? null
-  if (actionLink) {
-    redirect(actionLink)
-  }
-
-  redirect('/espace/login?error=auth')
+/** Le lien est-il encore utilisable ? Lecture seule : rien n'est consommé à l'affichage. */
+async function isUsable(token: string): Promise<boolean> {
+  if (!isWellFormedToken(token)) return false
+  // Clé secrète : page publique à jeton (account_activations n'a aucune policy)
+  const { data } = await createAdminClient()
+    .from('account_activations')
+    .select('id')
+    .eq('token_hash', hashToken(token))
+    .is('used_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .maybeSingle()
+  return !!data
 }
 
 export default async function ActivatePage({
@@ -51,21 +23,14 @@ export default async function ActivatePage({
   params: Promise<{ token: string }>
 }) {
   const { token } = await params
-  const admin = createAdminClient()
 
-  const { data: invite } = await admin
-    .from('pending_invites')
-    .select('expires_at')
-    .eq('token', token)
-    .single()
-
-  if (!invite || (invite.expires_at != null && new Date(invite.expires_at) < new Date())) {
+  if (!(await isUsable(token))) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-teal-50 px-4">
         <div className="text-center space-y-3">
-          <p className="font-sans text-dark/60">Ce lien d'invitation a expiré ou est invalide.</p>
-          <a href="/espace/login" className="text-teal text-sm font-sans hover:underline">
-            ← Se connecter
+          <p className="font-sans text-dark/60">Ce lien a expiré ou a déjà été utilisé.</p>
+          <a href="/espace/mot-de-passe-oublie?premier=1" className="text-teal text-sm font-sans hover:underline">
+            Recevoir un nouveau lien
           </a>
         </div>
       </div>
@@ -90,7 +55,7 @@ export default async function ActivatePage({
             Clique sur le bouton ci-dessous pour créer ton mot de passe et activer ton compte bénévole.
           </p>
 
-          <form action={activate}>
+          <form action={activateAccount}>
             <input type="hidden" name="token" value={token} />
             <button
               type="submit"

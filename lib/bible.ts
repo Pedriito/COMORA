@@ -7,6 +7,22 @@ export const BIBLE_VERSIONS = [
   { id: 'KJV',   name: 'King James (EN)'           },
 ]
 
+export type BibleRequest = { translation: string; book: number; chapter: number }
+
+/** Paramètres du proxy /api/bible, validés par liste blanche ; null si invalides. */
+export function parseBibleRequest(
+  translation: string | null,
+  book: string | null,
+  chapter: string | null,
+): BibleRequest | null {
+  if (!translation || !BIBLE_VERSIONS.some(v => v.id === translation)) return null
+  if (!book || !/^\d{1,2}$/.test(book) || !chapter || !/^\d{1,3}$/.test(chapter)) return null
+  const bookNum = Number(book)
+  const chapterNum = Number(chapter)
+  if (bookNum < 1 || bookNum > 66 || chapterNum < 1 || chapterNum > 150) return null
+  return { translation, book: bookNum, chapter: chapterNum }
+}
+
 // Noms normalisés → numéro de livre (1-66)
 function normalize(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim()
@@ -115,7 +131,7 @@ export async function fetchBibleVerse(
 
   try {
     // Passe par le proxy Next.js pour éviter les problèmes CORS
-    const url = `/api/bible?translation=${version}&book=${bookNum}&chapter=${chapter}`
+    const url = `/api/bible?translation=${encodeURIComponent(version)}&book=${bookNum}&chapter=${chapter}`
     const res = await fetch(url)
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))

@@ -1,23 +1,20 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
 import ProjectionSettingsForm from './ProjectionSettingsForm'
-import { DEFAULT_SETTINGS, SETTINGS_ID } from '@/lib/projectionSettings'
+import { loadProjectionSettings } from '@/lib/projectionSettings'
 
 export default async function ProjectionSettingsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const { supabase, church } = await requireChurch('responsable')
 
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'editor', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
-
-  const [{ data: rawSettings }, { data: mediaFiles }] = await Promise.all([
-    supabase.from('projection_settings').select('*').eq('id', SETTINGS_ID).single(),
-    supabase.from('media_files').select('id, name, url').eq('type', 'image').order('created_at', { ascending: false }),
+  const [settings, { data: mediaFiles }] = await Promise.all([
+    loadProjectionSettings(supabase, church.churchId),
+    supabase
+      .from('media_files')
+      .select('id, name, url')
+      .eq('church_id', church.churchId)
+      .eq('type', 'image')
+      .order('created_at', { ascending: false }),
   ])
-
-  const settings = rawSettings ?? DEFAULT_SETTINGS
 
   return (
     <div className="min-h-screen bg-teal-50">
@@ -27,8 +24,9 @@ export default async function ProjectionSettingsPage() {
       </header>
       <main className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-8">
         <ProjectionSettingsForm
-          initial={settings as any}
-          mediaFiles={(mediaFiles ?? []) as { id: string; name: string; url: string }[]}
+          churchId={church.churchId}
+          initial={settings}
+          mediaFiles={mediaFiles ?? []}
         />
       </main>
     </div>

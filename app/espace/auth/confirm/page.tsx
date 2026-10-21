@@ -10,6 +10,19 @@ export default function ConfirmPage() {
   useEffect(() => {
     const supabase = createClient()
 
+    // Tableau de bord, ou page d'attente si le compte n'a aucune église active
+    async function homeFor(userId: string | undefined) {
+      if (!userId) return '/espace/login?error=auth'
+      const { data: membership } = await supabase
+        .from('church_memberships')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle()
+      return membership ? '/espace/dashboard' : '/espace/sans-eglise'
+    }
+
     async function handleRedirect() {
       // Cas 1 : flux PKCE — Supabase envoie ?code=xxx dans la query string
       const queryParams = new URLSearchParams(window.location.search)
@@ -22,13 +35,7 @@ export default function ConfirmPage() {
         if (typeFromQuery === 'recovery' || typeFromQuery === 'invite') {
           router.replace('/espace/set-password'); return
         }
-        const userId = data.session?.user?.id
-        if (userId) {
-          const { data: profile } = await supabase
-            .from('profiles').select('status').eq('id', userId).single()
-          if (profile?.status === 'invited') { router.replace('/espace/set-password'); return }
-        }
-        router.replace('/espace/dashboard')
+        router.replace(await homeFor(data.session?.user?.id))
         return
       }
 
@@ -51,14 +58,7 @@ export default function ConfirmPage() {
         router.replace('/espace/set-password'); return
       }
 
-      const userId = data.session?.user?.id
-      if (userId) {
-        const { data: profile } = await supabase
-          .from('profiles').select('status').eq('id', userId).single()
-        if (profile?.status === 'invited') { router.replace('/espace/set-password'); return }
-      }
-
-      router.replace('/espace/dashboard')
+      router.replace(await homeFor(data.session?.user?.id))
     }
 
     handleRedirect()

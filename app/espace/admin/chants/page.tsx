@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
 import { FlashMessage } from '../../_components/FlashMessage'
 
@@ -14,11 +13,7 @@ export default async function AdminChantsPage({
 }: {
   searchParams: Promise<{ q?: string; deleted?: string; tab?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'editor', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
+  const { supabase, church } = await requireChurch('responsable')
 
   const { q, deleted, tab } = await searchParams
   const search = q?.trim() ?? ''
@@ -27,6 +22,7 @@ export default async function AdminChantsPage({
   let query = supabase
     .from('songs')
     .select('id, title, arrangements(id, chord_chart_key)')
+    .eq('church_id', church.churchId)
     .order('title')
 
   if (search) query = query.ilike('title', `%${search}%`)

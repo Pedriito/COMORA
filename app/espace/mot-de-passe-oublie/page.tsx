@@ -2,78 +2,54 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { sendPasswordResetEmail, sendInviteEmail } from '@/lib/email/espace'
 import Link from 'next/link'
-import { siteUrl as getSiteUrl } from '@/lib/site'
 import { Logo } from '@/components/brand/logo'
+import { activationUrl, createActivation, isEmail } from '../activer/activation'
 
+/**
+ * Envoie un lien d'activation (même nature que l'invitation : jeton haché,
+ * 72 h, usage unique). La réponse est identique que le compte existe ou non.
+ */
 async function requestReset(formData: FormData) {
   'use server'
-  const email = (formData.get('email') as string)?.trim().toLowerCase()
-  const premier = (formData.get('premier') as string) === '1'
+  const email = String(formData.get('email') ?? '').trim().toLowerCase()
+  const premier = formData.get('premier') === '1'
   const sentUrl = `/espace/mot-de-passe-oublie?sent=1${premier ? '&premier=1' : ''}`
+  if (!isEmail(email)) redirect(sentUrl)
 
-  const siteUrl = getSiteUrl()
-
+  // Clé secrète : recherche du compte (API Auth) et création du lien d'activation
   const admin = createAdminClient()
 
-  // generateLink échoue si l'email n'existe pas dans Supabase Auth → pas d'énumération
-  const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
-    type: 'recovery',
-    email,
-    options: { redirectTo: `${siteUrl}/espace/auth/confirm` },
-  })
+  // generateLink renvoie le compte de cette adresse, ou une erreur s'il n'existe pas.
+  // Le lien produit n'est ni envoyé ni stocké : celui de Supabase sera généré au clic.
+  const { data: linkData } = await admin.auth.admin.generateLink({ type: 'recovery', email })
+  const userId = linkData?.user?.id
+  if (!userId) redirect(sentUrl)
 
-  if (linkErr || !linkData?.properties?.action_link) {
-    console.log('[requestReset] generateLink failed:', linkErr?.message ?? 'no action_link', { email })
-    redirect(sentUrl)
-  }
-
-  // generateLink retourne l'objet user complet
-  const userId: string = (linkData as any).user?.id
-  console.log('[requestReset] user found in auth:', userId, '| email:', email)
-
-  // Récupère le prénom depuis profiles
-  const { data: profile } = await admin
-    .from('profiles')
-    .select('first_name')
-    .eq('id', userId)
+  // Église du lien : la plus ancienne appartenance encore ouverte du compte
+  const { data: membership } = await admin
+    .from('church_memberships')
+    .select('church_id')
+    .eq('user_id', userId)
+    .in('status', ['active', 'invited'])
+    .order('created_at')
+    .limit(1)
     .maybeSingle()
+  if (!membership) redirect(sentUrl)
 
-  // Corrige l'email manquant dans profiles (anciens comptes)
-  await admin.from('profiles').update({ email }).eq('id', userId)
+  const token = await createActivation(admin, membership.church_id, userId)
+  if (!token) redirect(sentUrl)
 
-  // Stocke dans pending_invites pour usage via /activer/{token}
-  const { data: invite, error: inviteErr } = await admin
-    .from('pending_invites')
-    .insert({ action_link: linkData.properties.action_link, email, user_id: userId })
-    .select('token')
-    .single()
-
-  if (inviteErr || !invite) {
-    console.error('[requestReset] pending_invites insert failed:', inviteErr?.message, { email, userId })
-    redirect(sentUrl)
-  }
-
-  const actionUrl = `${siteUrl}/espace/activer/${invite.token}`
+  const { data: profile } = await admin.from('profiles').select('first_name').eq('id', userId).maybeSingle()
+  const firstName = profile?.first_name ?? ''
 
   try {
     if (premier) {
-      // Première connexion : email d'invitation avec le bon wording
-      await sendInviteEmail({
-        to: email,
-        firstName: profile?.first_name ?? '',
-        inviteLink: actionUrl,
-      })
+      await sendInviteEmail({ to: email, firstName, inviteLink: activationUrl(token) })
     } else {
-      // Mot de passe oublié : email de réinitialisation
-      await sendPasswordResetEmail({
-        to: email,
-        firstName: profile?.first_name ?? '',
-        resetLink: actionUrl,
-      })
+      await sendPasswordResetEmail({ to: email, firstName, resetLink: activationUrl(token) })
     }
-    console.log('[requestReset] email sent OK to', email, '| premier:', premier)
-  } catch (err: any) {
-    console.error('[requestReset] Resend error:', err?.message, { email, premier })
+  } catch {
+    console.error('[requestReset] envoi de l’e-mail impossible')
   }
 
   redirect(sentUrl)

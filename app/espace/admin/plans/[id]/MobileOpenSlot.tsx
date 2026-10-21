@@ -5,7 +5,8 @@ import { addAssignment } from '../actions'
 import { IconWarning } from '@/app/espace/_components/Icons'
 import { frequencyLabels } from '@/lib/labels'
 
-const INVITE_EXT_ID = '00000000-0000-0000-0000-000000000001'
+// Valeur du champ `member_id` qui désigne un invité externe (voir addAssignment)
+const EXTERNAL_CHOICE = 'external'
 
 type Profile = {
   id: string
@@ -44,7 +45,7 @@ export function MobileOpenSlot({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [userId, setUserId]     = useState('')
-  const isExternal = userId === INVITE_EXT_ID
+  const isExternal = userId === EXTERNAL_CHOICE
   const isOpen = variant === 'open'
 
   const available   = candidates.filter(p => !p.unavailable)
@@ -101,13 +102,13 @@ export function MobileOpenSlot({
         {/* Sélecteur de bénévole + bouton */}
         <div className="flex gap-2">
           <select
-            name="user_id"
+            name="member_id"
             value={userId}
             onChange={e => setUserId(e.target.value)}
             className="flex-1 min-w-0 px-2 py-1.5 rounded-lg border border-teal/30 bg-white text-dark font-sans text-xs focus:outline-none focus:ring-1 focus:ring-teal/40"
           >
             <option value="">— Choisir un bénévole —</option>
-            {isInviteTeam && <option value={INVITE_EXT_ID}>Invité (Ext)</option>}
+            {isInviteTeam && <option value={EXTERNAL_CHOICE}>Invité (Ext)</option>}
 
             {available.length > 0 && unavailable.length > 0 ? (
               <optgroup label="Disponibles">

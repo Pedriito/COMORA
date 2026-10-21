@@ -1,22 +1,19 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
-import { getChurchSettings, getChurchSchedules } from '@/lib/churchSettings'
+import { toChurchSettings } from '@/lib/churchSettings'
 import SiteSettingsForm from './SiteSettingsForm'
 import SchedulesManager from './SchedulesManager'
 
 export default async function SitePage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-  const { data: me } = await supabase.from('profiles').select('permission, church_id').eq('id', user.id).single()
-  if (!['admin', 'super_admin'].includes(me?.permission ?? '') || !me?.church_id) redirect('/espace/dashboard')
+  const ctx = await requireChurch('admin')
+  const churchId = ctx.church.churchId
+  const church = { name: ctx.church.churchName, slug: ctx.church.churchSlug }
 
-  const { data: church } = await supabase.from('churches').select('name, slug').eq('id', me.church_id).maybeSingle()
-  const [settings, schedules] = await Promise.all([
-    getChurchSettings(me.church_id, church?.name ?? ''),
-    getChurchSchedules(me.church_id),
+  const [{ data: settingsRow }, { data: schedules }] = await Promise.all([
+    ctx.supabase.from('church_settings').select('*').eq('church_id', churchId).maybeSingle(),
+    ctx.supabase.from('church_schedules').select('*').eq('church_id', churchId).eq('active', true).order('sort_order'),
   ])
+  const settings = toChurchSettings(settingsRow, church.name)
 
   return (
     <div className="min-h-screen bg-teal-50">
@@ -26,7 +23,7 @@ export default async function SitePage() {
           <p className="font-sans text-xs text-dark/40 uppercase tracking-widest font-medium">Présence en ligne</p>
           <h1 className="font-display text-2xl text-dark font-light">Site web</h1>
         </div>
-        {church?.slug && (
+        {church.slug && (
         <Link
           href={`/sites/${church.slug}`}
           target="_blank"
@@ -53,7 +50,7 @@ export default async function SitePage() {
 
             <section>
               <p className="font-sans text-xs text-dark/40 uppercase tracking-widest mb-3 px-1">Horaires</p>
-              <SchedulesManager initial={schedules} />
+              <SchedulesManager initial={schedules ?? []} />
             </section>
           </div>
 
@@ -69,7 +66,7 @@ export default async function SitePage() {
                   <div className="w-2.5 h-2.5 rounded-full bg-green-300/70"/>
                 </div>
                 <div className="flex-1 bg-white/80 rounded-md px-3 py-1 text-[10px] font-sans text-dark/40 text-center">
-                  {church?.slug ? `${church.slug}.comora.fr` : 'votre-eglise.comora.fr'}
+                  {church.slug ? `${church.slug}.comora.fr` : 'votre-eglise.comora.fr'}
                 </div>
               </div>
               {/* Preview content */}

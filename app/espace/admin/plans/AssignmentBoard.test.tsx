@@ -79,7 +79,7 @@ function renderBoard(detail: any, isAdmin = true) {
     <AssignmentBoard
       planId="plan-1"
       detail={detail}
-      userId={VIEWER}
+      memberId={VIEWER}
       fillKey={null}
       isAdmin={isAdmin}
       returnTo="/espace/admin/plans"
@@ -110,9 +110,9 @@ describe('AssignmentBoard — repli par défaut des blocs d’équipe', () => {
     const team = makeTeam({
       isMyTeam: false,
       assignments: [{
-        id: 'a-1', status: 'confirmed', user_id: VIEWER, position_id: 'pos-1', team_id: 'team-1',
+        id: 'a-1', status: 'confirmed', member_id: VIEWER, position_id: 'pos-1', team_id: 'team-1',
         external_name: null, external_email: null, invitation_sent_at: null,
-        profiles: { first_name: 'Moi', last_name: 'Test' },
+        members: { first_name: 'Moi', last_name: 'Test' },
         positions: { id: 'pos-1', name: 'Piano', team_id: 'team-1' }, unavailable: false,
       }],
     })

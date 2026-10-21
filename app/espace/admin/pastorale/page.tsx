@@ -1,7 +1,5 @@
 import React from 'react'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
 import { PrayerRequestForm } from './PrayerRequestForm'
 import { IconHome, IconPhone, IconChat, IconDocument } from '@/app/espace/_components/Icons'
@@ -11,13 +9,9 @@ export default async function PastoralePage({
 }: {
   searchParams: Promise<{ filter?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
-
-  const admin = createAdminClient()
+  const ctx = await requireChurch('pastoral')
+  const db = ctx.supabase
+  const churchId = ctx.church.churchId
   const { filter: rawFilter } = await searchParams
   const filter = rawFilter ?? 'tous'
 
@@ -26,19 +20,22 @@ export default async function PastoralePage({
     { data: recentNotes },
     { data: profiles },
   ] = await Promise.all([
-    admin
+    db
       .from('prayer_requests')
-      .select('id, subject, notes, status, person_name, created_at, profile_id, profiles!prayer_requests_profile_id_fkey(first_name, last_name)')
+      .select('id, subject, notes, status, person_name, created_at, member_id, members(first_name, last_name)')
+      .eq('church_id', churchId)
       .eq('status', 'active')
       .order('created_at', { ascending: false }),
-    admin
+    db
       .from('pastoral_notes')
-      .select('id, note_date, type, notes, profile_id, profiles!pastoral_notes_profile_id_fkey(first_name, last_name)')
+      .select('id, note_date, type, notes, member_id, members(first_name, last_name)')
+      .eq('church_id', churchId)
       .order('note_date', { ascending: false })
       .limit(10),
-    admin
-      .from('profiles')
+    db
+      .from('members')
       .select('id, first_name, last_name')
+      .eq('church_id', churchId)
       .order('first_name'),
   ])
 
@@ -75,7 +72,7 @@ export default async function PastoralePage({
           <h1 className="font-display text-2xl text-dark font-light">Pastorale</h1>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <PrayerRequestForm profiles={(profiles ?? []) as any} buttonVariant="header" />
+          <PrayerRequestForm profiles={profiles ?? []} buttonVariant="header" />
         </div>
       </header>
 
@@ -114,7 +111,7 @@ export default async function PastoralePage({
             {/* Liste */}
             <div className="space-y-3">
               {prayerRequests.map(pr => {
-                const profile = pr.profiles as any
+                const profile = pr.members as unknown as { first_name: string; last_name: string } | null
                 const name = profile
                   ? `${profile.first_name} ${profile.last_name}`
                   : (pr.person_name ?? 'Anonyme')
@@ -170,8 +167,8 @@ export default async function PastoralePage({
                         </div>
                       </div>
                     </div>
-                    {pr.profile_id && (
-                      <Link href={`/espace/admin/pastorale/${pr.profile_id}`} className="font-sans text-[10px] text-teal/50 hover:text-teal mt-2 ml-12 inline-block">
+                    {pr.member_id && (
+                      <Link href={`/espace/admin/pastorale/${pr.member_id}`} className="font-sans text-[10px] text-teal/50 hover:text-teal mt-2 ml-12 inline-block">
                         Voir la fiche →
                       </Link>
                     )}
@@ -211,13 +208,13 @@ export default async function PastoralePage({
               <p className="font-sans text-xs text-dark/40 uppercase tracking-widest font-medium mb-3">Activité récente</p>
               <div className="space-y-3">
                 {recentNotes?.map(n => {
-                  const profile = n.profiles as any
+                  const profile = n.members as unknown as { first_name: string; last_name: string } | null
                   const name = profile ? `${profile.first_name} ${profile.last_name}` : '—'
                   const t = typeInfo[n.type]
                   return (
                     <Link
                       key={n.id}
-                      href={`/espace/admin/pastorale/${n.profile_id}`}
+                      href={`/espace/admin/pastorale/${n.member_id}`}
                       className="flex items-start gap-2.5 group"
                     >
                       <span className="w-1.5 h-1.5 rounded-full bg-teal mt-1.5 shrink-0" />

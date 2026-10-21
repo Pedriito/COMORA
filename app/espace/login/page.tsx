@@ -98,6 +98,12 @@ export default function LoginPage({
   )
 }
 
+const loginErrors: Record<string, string> = {
+  credentials: 'Email ou mot de passe incorrect. Vérifie tes identifiants.',
+  expired: 'Ce lien a expiré ou a déjà été utilisé. Demande un nouveau lien avec « Première connexion » ou « Mot de passe oublié ».',
+  auth: 'La connexion a échoué. Réessaie.',
+}
+
 async function ErrorMessage({
   searchParams,
 }: {
@@ -107,7 +113,7 @@ async function ErrorMessage({
   if (!params.error) return null
   return (
     <p className="text-sm text-red-500 font-sans">
-      Email ou mot de passe incorrect. Vérifie tes identifiants.
+      {loginErrors[params.error] ?? loginErrors.credentials}
     </p>
   )
 }

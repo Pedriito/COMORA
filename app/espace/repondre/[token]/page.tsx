@@ -1,48 +1,54 @@
-import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { loadAssignmentByToken, recordResponse, isResponseStatus } from '../respond'
 
 async function confirmResponse(formData: FormData) {
   'use server'
-  const id = formData.get('id') as string
-  const status = formData.get('status') as string
-  if (status !== 'confirmed' && status !== 'declined') return
-  const admin = createAdminClient()
-  await admin.from('plan_assignments').update({ status }).eq('id', id)
-  redirect(`/espace/repondre/${id}/merci?status=${status}`)
+  const token = formData.get('token') as string
+  const status = formData.get('status')
+  if (!(await recordResponse(token, status, 'member'))) {
+    redirect(`/espace/repondre/${encodeURIComponent(token)}?status=${isResponseStatus(status) ? status : 'confirmed'}&error=1`)
+  }
+  redirect(`/espace/repondre/${encodeURIComponent(token)}/merci?status=${status}`)
+}
+
+function InvalidLink() {
+  return (
+    <div className="min-h-screen bg-teal-50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl border border-teal/20 p-8 max-w-sm w-full text-center space-y-3">
+        <p className="font-sans text-sm text-dark/60">Lien invalide ou expiré.</p>
+        <Link href="/espace/dashboard" className="font-sans text-xs text-teal hover:underline">
+          Accéder à mon espace
+        </Link>
+      </div>
+    </div>
+  )
 }
 
 export default async function RepondrePage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id: string }>
-  searchParams: Promise<{ status?: string }>
+  params: Promise<{ token: string }>
+  searchParams: Promise<{ status?: string; error?: string }>
 }) {
-  const { id } = await params
-  const { status } = await searchParams
+  const { token } = await params
+  const { status, error } = await searchParams
 
   if (status !== 'confirmed' && status !== 'declined') {
     redirect('/espace/login')
   }
 
-  const admin = createAdminClient()
-  const { data: assignment } = await admin
-    .from('plan_assignments')
-    .select('id, user_id, status, plans(title, service_date), positions(name)')
-    .eq('id', id)
-    .single()
+  const assignment = await loadAssignmentByToken(token, 'member')
+  if (!assignment) return <InvalidLink />
 
-  if (!assignment) redirect('/espace/dashboard')
-
-  const plan = assignment.plans as any
-  const position = assignment.positions as any
-  const date = plan ? new Date(plan.service_date).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  }) : '—'
-  const time = plan ? new Date(plan.service_date).toLocaleTimeString('fr-FR', {
-    hour: '2-digit', minute: '2-digit',
-  }) : ''
+  const tz = assignment.timeZone
+  const date = new Date(assignment.serviceDate).toLocaleDateString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: tz,
+  })
+  const time = new Date(assignment.serviceDate).toLocaleTimeString('fr-FR', {
+    hour: '2-digit', minute: '2-digit', timeZone: tz,
+  })
 
   const isConfirmed = status === 'confirmed'
 
@@ -54,9 +60,9 @@ export default async function RepondrePage({
         </h1>
 
         <div className="bg-teal/5 rounded-xl px-5 py-4 text-left space-y-1">
-          <p className="font-sans text-sm font-medium text-dark">{plan?.title}</p>
+          <p className="font-sans text-sm font-medium text-dark">{assignment.planTitle}</p>
           <p className="font-sans text-xs text-dark/50 capitalize">{date}{time ? ` à ${time}` : ''}</p>
-          {position && <p className="font-sans text-xs text-teal">{position.name}</p>}
+          {assignment.positionName && <p className="font-sans text-xs text-teal">{assignment.positionName}</p>}
         </div>
 
         <p className="font-sans text-sm text-dark/60">
@@ -65,8 +71,10 @@ export default async function RepondrePage({
             : 'Clique sur le bouton ci-dessous pour signaler que tu ne seras pas disponible.'}
         </p>
 
+        {error && <p className="font-sans text-xs text-red-500">Réponse non enregistrée, réessaie.</p>}
+
         <form action={confirmResponse}>
-          <input type="hidden" name="id" value={id} />
+          <input type="hidden" name="token" value={token} />
           <input type="hidden" name="status" value={status} />
           <button
             type="submit"

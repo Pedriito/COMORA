@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
+import { notFound } from 'next/navigation'
 import { transposeChart, isChordLine, isSectionHeader } from '@/lib/transpose'
 import { AutoPrint } from './AutoPrint'
 import { PrintActions } from './PrintActions'
@@ -13,9 +13,7 @@ export default async function PrintPage({
   params: Promise<{ id: string }>
   searchParams: Promise<SearchParams>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
+  const { supabase, church } = await requireChurch('membre')
 
   const { id } = await params
   const { key, arr, chords } = await searchParams
@@ -24,8 +22,9 @@ export default async function PrintPage({
   const { data: song } = await supabase
     .from('songs')
     .select('id, title, ccli, arrangements(id, name, bpm, length_seconds, chord_chart, chord_chart_key, keys_available)')
-    .eq('id', parseInt(id, 10))
-    .single()
+    .eq('id', id)
+    .eq('church_id', church.churchId)
+    .maybeSingle()
 
   if (!song) notFound()
 

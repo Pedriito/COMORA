@@ -1,18 +1,14 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
 import MediaLibrary from './MediaLibrary'
 
 export default async function MediathequePage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'editor', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
+  const { supabase, church } = await requireChurch('responsable')
 
   const { data: files } = await supabase
     .from('media_files')
-    .select('id, name, url, storage_path, created_at')
+    .select('id, name, url, created_at')
+    .eq('church_id', church.churchId)
     .order('created_at', { ascending: false })
 
   return (
@@ -22,7 +18,7 @@ export default async function MediathequePage() {
         <h1 className="font-display text-xl md:text-2xl text-dark font-light">Médiathèque</h1>
       </header>
       <main className="max-w-5xl mx-auto px-4 md:px-6 py-6 md:py-8">
-        <MediaLibrary initial={(files ?? []) as any} />
+        <MediaLibrary initial={files ?? []} />
       </main>
     </div>
   )

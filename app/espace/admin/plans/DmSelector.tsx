@@ -24,7 +24,7 @@ export function DmSelector({
   const [error, setError] = useState<string | null>(null)
 
   const currentSourceId = instruments.find(
-    i => dmAssignment && i.assignment?.user_id === dmAssignment.user_id
+    i => dmAssignment && i.assignment?.member_id === dmAssignment.member_id
   )?.positionId ?? ''
 
   function handleChange(value: string) {
@@ -50,7 +50,7 @@ export function DmSelector({
         <option value="">— Aucun —</option>
         {available.map(i => (
           <option key={i.positionId} value={i.positionId}>
-            {i.positionName} — {i.assignment!.profiles?.first_name} {i.assignment!.profiles?.last_name}
+            {i.positionName} — {i.assignment!.members?.first_name} {i.assignment!.members?.last_name}
           </option>
         ))}
       </select>

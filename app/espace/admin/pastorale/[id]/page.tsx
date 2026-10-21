@@ -1,6 +1,5 @@
-import { createAdminClient } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
+import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { PastoralMemberClient } from './PastoralMemberClient'
 
@@ -10,41 +9,45 @@ export default async function PastoralMemberPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-  const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-  if (!['admin', 'super_admin'].includes(me?.permission ?? '')) redirect('/espace/dashboard')
-
-  const admin = createAdminClient()
+  const ctx = await requireChurch('pastoral')
+  const db = ctx.supabase
+  const churchId = ctx.church.churchId
 
   const [
-    { data: profile },
+    { data: member },
+    { data: contact },
     { data: prayerRequests },
     { data: pastoralNotes },
     { data: assignments },
   ] = await Promise.all([
-    admin.from('profiles')
-      .select('id, first_name, last_name, email, phone, city, birthdate, status, created_at')
-      .eq('id', id).single(),
-    admin.from('prayer_requests')
+    db.from('members')
+      .select('id, first_name, last_name, status, created_at')
+      .eq('church_id', churchId).eq('id', id).maybeSingle(),
+    // Coordonnées : la RLS des coordonnées ne les ouvre qu'aux responsables et à la personne
+    db.from('member_contacts')
+      .select('email, phone, city, birthdate')
+      .eq('church_id', churchId).eq('member_id', id).maybeSingle(),
+    db.from('prayer_requests')
       .select('id, subject, notes, status, created_at, resolved_at')
-      .eq('profile_id', id)
+      .eq('church_id', churchId)
+      .eq('member_id', id)
       .order('created_at', { ascending: false }),
-    admin.from('pastoral_notes')
+    db.from('pastoral_notes')
       .select('id, note_date, type, notes, created_at')
-      .eq('profile_id', id)
+      .eq('church_id', churchId)
+      .eq('member_id', id)
       .order('note_date', { ascending: false }),
-    admin.from('plan_assignments')
+    db.from('plan_assignments')
       .select('id, status, plan_id, plans!inner(title, service_date)')
-      .eq('user_id', id)
+      .eq('church_id', churchId)
+      .eq('member_id', id)
       .order('plans.service_date', { ascending: false })
       .limit(10),
   ])
 
-  if (!profile) notFound()
+  if (!member) notFound()
 
-  const p = profile as any
+  const p = { ...member, email: contact?.email ?? '', phone: contact?.phone ?? null, city: contact?.city ?? null, birthdate: contact?.birthdate ?? null }
 
   return (
     <div className="min-h-screen bg-teal-50">
@@ -62,11 +65,11 @@ export default async function PastoralMemberPage({
 
       <main className="max-w-4xl mx-auto px-4 md:px-6 py-6 space-y-6">
         <PastoralMemberClient
-          profileId={id}
+          memberId={id}
           profile={p}
-          prayerRequests={(prayerRequests ?? []) as any}
-          pastoralNotes={(pastoralNotes ?? []) as any}
-          assignments={(assignments ?? []) as any}
+          prayerRequests={prayerRequests ?? []}
+          pastoralNotes={pastoralNotes ?? []}
+          assignments={(assignments ?? []) as never}
         />
       </main>
     </div>

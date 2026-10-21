@@ -14,7 +14,7 @@ export function ResolveDecisionForm({
   const [note, setNote] = useState('')
   const [isPending, startTransition] = useTransition()
 
-  function handle(status: 'decided' | 'dismissed') {
+  function handle(status: 'decided' | 'rejected') {
     const fd = new FormData()
     fd.set('decision_id', decisionId)
     fd.set('team_id', teamId)
@@ -37,7 +37,7 @@ export function ResolveDecisionForm({
           Trancher →
         </button>
         <button
-          onClick={() => handle('dismissed')}
+          onClick={() => handle('rejected')}
           disabled={isPending}
           className="font-sans text-xs text-dark/30 hover:text-dark/50 transition-colors disabled:opacity-40"
         >

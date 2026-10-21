@@ -7,7 +7,7 @@ import { reorderPlanSongs, removePlanSong } from '../actions'
 type PlanSong = {
   id: string
   key_selected: string | null
-  songs: { id: number; title: string } | null
+  songs: { id: string; title: string } | null
 }
 
 type Props = {

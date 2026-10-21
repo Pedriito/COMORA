@@ -5,7 +5,7 @@ import { ok, makeFakeSupabase } from '@/tests/helpers/fakeSupabase'
 // module. On capture ces arguments (pour vérifier la config du cache) et on transforme
 // `unstable_cache` en passe-plat pour que chaque test relance la vraie fonction, sans TTL.
 const { unstableCacheMock, createAdminClientMock } = vi.hoisted(() => ({
-  unstableCacheMock: vi.fn((fn: (...a: unknown[]) => unknown) => fn),
+  unstableCacheMock: vi.fn((fn: (...a: unknown[]) => unknown, _keys?: string[], _options?: { revalidate: number; tags: string[] }) => fn),
   createAdminClientMock: vi.fn(),
 }))
 
@@ -18,31 +18,35 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: createAdminClientMock,
 }))
 
-const { getPlanDetail } = await import('./getPlanDetail')
-// Vitest 5 vide l'historique des mocks entre les tests : on garde l'appel fait au chargement.
-const unstableCacheCalls = [...unstableCacheMock.mock.calls]
+const { getPlanDetail, catalogTag } = await import('./getPlanDetail')
+
+/** Viewer d'un plan : église, personne liée au compte, droit de gestion, fuseau. */
+const CHURCH_ID = 'church-1'
+function viewer(memberId: string | null, canManage = false) {
+  return { churchId: CHURCH_ID, memberId, canManage, timeZone: 'Europe/Paris' }
+}
 
 const TEAMS_CATALOG = [
   { id: 'team-1', name: 'Louange', allows_guests: false, is_coordination: false, hide_positions: false, is_prayer_meeting: false, positions: [{ id: 'pos-1', name: 'Chant lead' }] },
   { id: 'team-2', name: 'Café', allows_guests: false, is_coordination: false, hide_positions: false, is_prayer_meeting: false, positions: [] },
 ]
 const PROFILES_CATALOG = [
-  { id: 'user-1', first_name: 'Alice', last_name: 'A' },
-  { id: 'user-2', first_name: 'Bob', last_name: 'B' },
+  { id: 'user-1', first_name: 'Alice', last_name: 'A', desired_frequency: null },
+  { id: 'user-2', first_name: 'Bob', last_name: 'B', desired_frequency: null },
 ]
 const TEAM_MEMBERSHIPS = [
-  { user_id: 'user-1', team_id: 'team-1' },
-  { user_id: 'user-2', team_id: 'team-2' },
+  { member_id: 'user-1', team_id: 'team-1' },
+  { member_id: 'user-2', team_id: 'team-2' },
 ]
-const MEMBER_POSITIONS = [{ user_id: 'user-1', position_id: 'pos-1' }]
-const SONGS_CATALOG = [{ id: 1, title: 'Amazing Grace', arrangements: [] }]
+const MEMBER_POSITIONS = [{ member_id: 'user-1', position_id: 'pos-1' }]
+const SONGS_CATALOG = [{ id: 'song-1', title: 'Amazing Grace', arrangements: [] }]
 const RECURRING_ANNOUNCEMENTS = [{ id: 'ra-1', title: 'Bienvenue', body: 'Merci de venir tôt', order_index: 0, image_url: null, video_url: null, active: true }]
 
 function setupAdminCatalog() {
   createAdminClientMock.mockReturnValue(
     makeFakeSupabase({
       teams: [ok(TEAMS_CATALOG)],
-      profiles: [ok(PROFILES_CATALOG)],
+      members: [ok(PROFILES_CATALOG)],
       team_members: [ok(TEAM_MEMBERSHIPS)],
       member_positions: [ok(MEMBER_POSITIONS)],
       songs: [ok(SONGS_CATALOG)],
@@ -60,15 +64,45 @@ beforeEach(() => {
 })
 
 describe('getStableCatalog (cache wiring)', () => {
-  it('configure unstable_cache avec un TTL de 5 min et un tag par table', () => {
-    expect(unstableCacheCalls).toContainEqual([
+  async function loadFor(churchId: string) {
+    const supabase = makeFakeSupabase({
+      plans: [ok({ id: 'plan-1', title: 'Culte', service_date: '2026-06-01T10:00:00.000Z', notes: null, plan_type: 'sunday_service', team_ids: null, excluded_position_ids: null }), ok([])],
+      plan_assignments: [ok([])],
+      blockout_dates: [ok([])],
+      plan_songs: [ok([])],
+      plan_announcements: [ok([])],
+      plan_sermons: [ok([])],
+      plan_videos: [ok([])],
+    })
+    await getPlanDetail(supabase as any, 'plan-1', { ...viewer('user-1'), churchId })
+  }
+
+  it('configure unstable_cache avec un TTL de 5 min et des tags propres à l’église', async () => {
+    await loadFor('church-1')
+    expect(unstableCacheMock).toHaveBeenCalledWith(
       expect.any(Function),
-      ['plan-detail-stable-catalog'],
+      ['plan-detail-stable-catalog', 'church-1'],
       {
         revalidate: 300,
-        tags: ['teams', 'profiles', 'team-members', 'member-positions', 'songs', 'recurring-announcements'],
+        tags: expect.arrayContaining(['teams', 'songs', catalogTag('church-1', 'teams'), catalogTag('church-1', 'songs')]),
       },
-    ])
+    )
+  })
+
+  it('n’utilise jamais la même entrée de cache pour deux églises', async () => {
+    await loadFor('church-1')
+    await loadFor('church-2')
+    const keys = unstableCacheMock.mock.calls.map(call => JSON.stringify(call[1]))
+    expect(new Set(keys).size).toBe(2)
+    const tagsOfSecond = unstableCacheMock.mock.calls[1]?.[2]?.tags ?? []
+    expect(tagsOfSecond).toContain('church:church-2:songs')
+    expect(tagsOfSecond).not.toContain('church:church-1:songs')
+  })
+
+  it('ne lit le catalogue qu’avec le filtre de l’église', async () => {
+    await loadFor('church-9')
+    // Le catalogue (clé secrète) est interrogé pour l’église demandée uniquement
+    expect(createAdminClientMock).toHaveBeenCalled()
   })
 })
 
@@ -87,23 +121,23 @@ describe('getPlanDetail', () => {
     {
       id: 'a1',
       status: 'confirmed',
-      user_id: 'user-1',
+      member_id: 'user-1',
       position_id: 'pos-1',
       team_id: null,
       external_name: null,
       external_email: null,
       invitation_sent_at: null,
-      profiles: { first_name: 'Alice', last_name: 'A' },
+      members: { first_name: 'Alice', last_name: 'A' },
       positions: { id: 'pos-1', name: 'Chant lead', team_id: 'team-1' },
     },
   ]
 
-  const BLOCKOUTS = [{ user_id: 'user-2', start_date: '2026-01-01', end_date: '2026-12-31' }]
+  const BLOCKOUTS = [{ member_id: 'user-2', start_date: '2026-01-01', end_date: '2026-12-31' }]
 
   function fakeCookieClient() {
     return makeFakeSupabase({
       plans: [ok(PLAN), ok([{ id: 'plan-0' }])], // 1er appel = plan courant, 2e = recentPlans
-      plan_assignments: [ok(MAIN_ASSIGNMENTS), ok([{ user_id: 'user-2' }, { user_id: 'user-2' }, { user_id: 'user-2' }])],
+      plan_assignments: [ok(MAIN_ASSIGNMENTS), ok([{ member_id: 'user-2' }, { member_id: 'user-2' }, { member_id: 'user-2' }])],
       blockout_dates: [ok(BLOCKOUTS)],
       plan_songs: [ok([])],
       plan_announcements: [ok([])],
@@ -122,13 +156,13 @@ describe('getPlanDetail', () => {
       plan_sermons: [ok([])],
       plan_videos: [ok([])],
     })
-    const result = await getPlanDetail(supabase as any, 'missing-plan', 'user-1', false)
+    const result = await getPlanDetail(supabase as any, 'missing-plan', viewer('user-1', false))
     expect(result).toBeNull()
   })
 
   it('assemble correctement le catalogue stable (cache) et les données volatiles du plan', async () => {
     const supabase = fakeCookieClient()
-    const result = await getPlanDetail(supabase as any, 'plan-1', 'user-1', false)
+    const result = await getPlanDetail(supabase as any, 'plan-1', viewer('user-1', false))
 
     expect(result).not.toBeNull()
     expect(result!.plan.id).toBe('plan-1')

@@ -20,7 +20,13 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: createAdminClientMock,
 }))
 
-const { getPlanDetail, INVITE_EXT_ID } = await import('./getPlanDetail')
+const { getPlanDetail } = await import('./getPlanDetail')
+/** Viewer d'un plan : église, personne liée au compte, droit de gestion, fuseau. */
+const CHURCH_ID = 'church-1'
+function viewer(memberId: string | null, canManage = false) {
+  return { churchId: CHURCH_ID, memberId, canManage, timeZone: 'Europe/Paris' }
+}
+
 
 // ---------------------------------------------------------------------------
 // Faux client qui enregistre AUSSI les filtres appliqués
@@ -30,7 +36,7 @@ const { getPlanDetail, INVITE_EXT_ID } = await import('./getPlanDetail')
 // on enveloppe son builder pour mémoriser les appels chaînés, requête par requête.
 type RecordedQuery = { table: string; calls: { method: string; args: unknown[] }[] }
 
-const CHAINABLE = ['select', 'eq', 'neq', 'gte', 'lt', 'in', 'order', 'limit'] as const
+const CHAINABLE = ['select', 'eq', 'neq', 'not', 'gte', 'lt', 'in', 'order', 'limit'] as const
 
 function makeRecordingSupabase(queues: Parameters<typeof makeFakeSupabase>[0]) {
   const inner = makeFakeSupabase(queues)
@@ -99,15 +105,15 @@ const CLARA = { id: 'user-clara', first_name: 'Clara', last_name: 'Petit' }
 
 /** Alice : Louange + Production. Bob : Production. Clara : aucune équipe. */
 const MEMBERSHIPS = [
-  { user_id: 'user-alice', team_id: 'team-louange' },
-  { user_id: 'user-alice', team_id: 'team-prod' },
-  { user_id: 'user-bob', team_id: 'team-prod' },
+  { member_id: 'user-alice', team_id: 'team-louange' },
+  { member_id: 'user-alice', team_id: 'team-prod' },
+  { member_id: 'user-bob', team_id: 'team-prod' },
 ]
 
 const MEMBER_POSITIONS = [
-  { user_id: 'user-alice', position_id: 'pos-chant' },
-  { user_id: 'user-bob', position_id: 'pos-chant' },
-  { user_id: 'user-clara', position_id: 'pos-son' },
+  { member_id: 'user-alice', position_id: 'pos-chant' },
+  { member_id: 'user-bob', position_id: 'pos-chant' },
+  { member_id: 'user-clara', position_id: 'pos-son' },
 ]
 
 const PLAN = {
@@ -125,13 +131,13 @@ function assignment(over: Record<string, any> = {}) {
   return {
     id: 'a1',
     status: 'confirmed',
-    user_id: 'user-alice',
+    member_id: 'user-alice',
     position_id: null,
     team_id: null,
     external_name: null,
     external_email: null,
     invitation_sent_at: null,
-    profiles: { first_name: 'Alice', last_name: 'Martin' },
+    members: { first_name: 'Alice', last_name: 'Martin' },
     positions: null,
     ...over,
   }
@@ -181,7 +187,7 @@ async function runPlanDetail(scenario: Scenario = {}) {
   createAdminClientMock.mockReturnValue(
     makeFakeSupabase({
       teams: [ok(s.teams)],
-      profiles: [ok(s.profiles)],
+      members: [ok(s.profiles)],
       team_members: [ok(s.teamMembers)],
       member_positions: [ok(s.memberPositions)],
       songs: [ok([])],
@@ -200,7 +206,7 @@ async function runPlanDetail(scenario: Scenario = {}) {
   })
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await getPlanDetail(supabase as any, 'plan-1', s.userId, s.isAdmin)
+  const result = await getPlanDetail(supabase as any, 'plan-1', viewer(s.userId, s.isAdmin))
   return { result: result!, queries: supabase.queries }
 }
 
@@ -220,20 +226,20 @@ describe('isMyTeam', () => {
     expect(prod.isMyTeam).toBe(true)
   })
 
-  it('est faux pour une équipe où le viewer est seulement affecté sans en être membre', async () => {
+  it('est faux pour une équipe où la personne est seulement affectée sans en être membre', async () => {
     const { result } = await runPlanDetail({
       userId: 'user-clara',
       assignments: [assignment({
-        user_id: 'user-clara',
+        member_id: 'user-clara',
         position_id: 'pos-chant',
-        profiles: { first_name: 'Clara', last_name: 'Petit' },
+        members: { first_name: 'Clara', last_name: 'Petit' },
         positions: { id: 'pos-chant', name: 'Chant lead', team_id: 'team-louange' },
       })],
     })
 
     const louange = result.teams.find(t => t.id === 'team-louange')!
     expect(louange.assignments).toHaveLength(1)
-    expect(louange.assignments[0].user_id).toBe('user-clara')
+    expect(louange.assignments[0].member_id).toBe('user-clara')
     expect(louange.isMyTeam).toBe(false)
   })
 
@@ -283,10 +289,10 @@ describe('servedThisMonth et desired_frequency des candidats', () => {
   it('compte les services du mois indépendamment de la charge des 60 derniers jours', async () => {
     const { result } = await runPlanDetail({
       recentAssignments: [
-        { user_id: 'user-alice' }, { user_id: 'user-alice' }, { user_id: 'user-alice' },
-        { user_id: 'user-bob' },
+        { member_id: 'user-alice' }, { member_id: 'user-alice' }, { member_id: 'user-alice' },
+        { member_id: 'user-bob' },
       ],
-      monthAssignments: [{ user_id: 'user-alice' }, { user_id: 'user-alice' }],
+      monthAssignments: [{ member_id: 'user-alice' }, { member_id: 'user-alice' }],
     })
 
     const prod = result.teams.find(t => t.id === 'team-prod')!
@@ -305,17 +311,18 @@ describe('servedThisMonth et desired_frequency des candidats', () => {
     expect(prod.candidateProfiles.map(p => p.desired_frequency)).toEqual(['2x/mois', null, null])
   })
 
-  it('exclut les affectations refusées et l’invité externe du comptage du mois', async () => {
+  it('exclut les affectations refusées et les invités externes du comptage du mois', async () => {
     const { queries } = await runPlanDetail()
 
     const monthAssignmentsQuery = queryAt(queries, 'plan_assignments', 2)
     expect(monthAssignmentsQuery.calls).toContainEqual({ method: 'neq', args: ['status', 'declined'] })
-    expect(monthAssignmentsQuery.calls).toContainEqual({ method: 'neq', args: ['user_id', INVITE_EXT_ID] })
+    // Les invités externes (sans personne liée) ne comptent pas dans la charge de service
+    expect(monthAssignmentsQuery.calls).toContainEqual({ method: 'not', args: ['member_id', 'is', null] })
     expect(monthAssignmentsQuery.calls).toContainEqual({ method: 'in', args: ['plan_id', ['plan-mois']] })
 
-    // La requête des 60 derniers jours, elle, exclut l'invité externe mais pas les refus.
+    // La requête des 60 derniers jours, elle, exclut les invités externes mais pas les refus.
     const recentAssignmentsQuery = queryAt(queries, 'plan_assignments', 1)
-    expect(recentAssignmentsQuery.calls).toContainEqual({ method: 'neq', args: ['user_id', INVITE_EXT_ID] })
+    expect(recentAssignmentsQuery.calls).toContainEqual({ method: 'not', args: ['member_id', 'is', null] })
     expect(recentAssignmentsQuery.calls).not.toContainEqual({ method: 'neq', args: ['status', 'declined'] })
   })
 
@@ -331,16 +338,17 @@ describe('servedThisMonth et desired_frequency des candidats', () => {
     // `new Date(y, m, 1).toISOString()` convertirait minuit local (Europe/Paris) en UTC et
     // reculerait les deux bornes d'un jour — le compteur incluait alors le dernier jour du
     // mois précédent et ignorait le dernier jour du mois courant.
+    // En septembre, Paris est à UTC+2 : minuit local du 1er = 22 h UTC la veille.
     expect(bounds).toEqual([
-      { method: 'gte', args: ['service_date', '2026-09-01'] },
-      { method: 'lt', args: ['service_date', '2026-10-01'] },
+      { method: 'gte', args: ['service_date', '2026-08-31T22:00:00.000Z'] },
+      { method: 'lt', args: ['service_date', '2026-09-30T22:00:00.000Z'] },
     ])
   })
 
   it('ne compte aucun service du mois quand aucun plan n’est trouvé sur la période', async () => {
     const { result, queries } = await runPlanDetail({
       monthPlans: [],
-      monthAssignments: [{ user_id: 'user-alice' }],
+      monthAssignments: [{ member_id: 'user-alice' }],
     })
 
     // Sans plan sur le mois, la requête d'affectations du mois n'est même pas émise.
@@ -373,9 +381,9 @@ describe('visible', () => {
       userId: 'user-clara',
       isAdmin: false,
       assignments: [assignment({
-        user_id: 'user-clara',
+        member_id: 'user-clara',
         team_id: 'team-coord',
-        profiles: { first_name: 'Clara', last_name: 'Petit' },
+        members: { first_name: 'Clara', last_name: 'Petit' },
       })],
     })
 

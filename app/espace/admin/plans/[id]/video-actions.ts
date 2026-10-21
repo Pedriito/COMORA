@@ -1,37 +1,29 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-
-async function getAdminIfAllowed() {
-  try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return null
-    const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-    if (!['admin', 'editor', 'super_admin'].includes(me?.permission ?? '')) return null
-    return createAdminClient()
-  } catch { return null }
-}
+import { churchOrNull } from '@/lib/auth/church'
 
 export async function addVideo(planId: string, title: string, url: string) {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return null
-  const { data: existing } = await admin
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return null
+  const churchId = ctx.church.churchId
+  // Seules les adresses web sont acceptées (pas de javascript:, data:…)
+  if (!/^https?:\/\//i.test(url.trim())) return null
+  const { data: existing } = await ctx.supabase
     .from('plan_videos')
     .select('order_index')
+    .eq('church_id', churchId)
     .eq('plan_id', planId)
     .order('order_index', { ascending: false })
     .limit(1)
   const nextIndex = existing?.[0] ? existing[0].order_index + 1 : 0
-  const { data } = await admin.from('plan_videos').insert({
-    plan_id: planId, title: title.trim() || null, url, order_index: nextIndex,
-  }).select().single()
+  const { data } = await ctx.supabase.from('plan_videos').insert({
+    church_id: churchId, plan_id: planId, title: title.trim() || null, url: url.trim(), order_index: nextIndex,
+  }).select('id, title, url, order_index').single()
   return data as { id: string; title: string | null; url: string; order_index: number } | null
 }
 
 export async function deleteVideo(id: string) {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return
-  await admin.from('plan_videos').delete().eq('id', id)
+  const ctx = await churchOrNull('responsable')
+  if (!ctx) return
+  await ctx.supabase.from('plan_videos').delete().eq('id', id).eq('church_id', ctx.church.churchId)
 }

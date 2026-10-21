@@ -1,17 +1,65 @@
+import 'server-only'
 import { Resend } from 'resend'
 import { siteConfig, siteUrl as getSiteUrl } from '@/lib/site'
+import { daysFromNow, signToken, verifyToken } from '@/lib/tokens'
+import { resolveTimeZone } from '@/lib/timezone'
+
+/** Objet des jetons signés des liens de réponse à une affectation. */
+export const ASSIGNMENT_RESPONSE_PURPOSE = 'assignment-response'
+
+/** Jeton signé (30 jours) qui porte l'id de l'affectation dans les liens de réponse. */
+export function assignmentResponseToken(assignmentId: string): string {
+  return signToken(ASSIGNMENT_RESPONSE_PURPOSE, assignmentId, daysFromNow(30))
+}
+
+/** Id de l'affectation d'un jeton de réponse valide, sinon null. */
+export function verifyAssignmentResponseToken(token: string): string | null {
+  const id = verifyToken(ASSIGNMENT_RESPONSE_PURPOSE, token)
+  return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null
+}
+
+/** Lien de réponse d'un bénévole (confirmer ou décliner). */
+export function memberResponseUrl(assignmentId: string, status: 'confirmed' | 'declined'): string {
+  return `${getSiteUrl()}/espace/repondre/${assignmentResponseToken(assignmentId)}?status=${status}`
+}
+
+/** Lien de réponse d'un invité externe. */
+export function externalResponseUrl(assignmentId: string): string {
+  return `${getSiteUrl()}/espace/repondre-ext/${assignmentResponseToken(assignmentId)}`
+}
+
+/** Échappe une valeur insérée dans le HTML d'un e-mail (noms, titres saisis). */
+function esc(value: string | null | undefined): string {
+  return (value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** Date longue et heure d'un service, dans le fuseau de l'église. */
+function serviceDateTime(serviceDate: string, timeZone: string) {
+  const tz = resolveTimeZone(timeZone)
+  const d = new Date(serviceDate)
+  return {
+    date: d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: tz }),
+    time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: tz }),
+  }
+}
 
 /** "25 mai", "3 décembre", etc. — format court pour les objets d'email */
-function shortDate(serviceDate: string): string {
+function shortDate(serviceDate: string, timeZone: string): string {
   return new Date(serviceDate).toLocaleDateString('fr-FR', {
     day: 'numeric',
     month: 'long',
+    timeZone: resolveTimeZone(timeZone),
   })
 }
 
 /** Construit l'objet email : "Culte du dimanche · 25 mai — Présidence" */
-function buildSubject(planTitle: string, serviceDate: string, positionName: string | null): string {
-  const date = shortDate(serviceDate)
+function buildSubject(planTitle: string, serviceDate: string, positionName: string | null, timeZone: string): string {
+  const date = shortDate(serviceDate, timeZone)
   const position = positionName ? ` — ${positionName}` : ''
   return `${planTitle} · ${date}${position}`
 }
@@ -45,7 +93,7 @@ export async function sendInviteEmail({
     subject: `Tu es invité(e) — ${siteConfig.name}`,
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${firstName},</p>
+        <p style="margin-bottom:8px;">Bonjour ${esc(firstName)},</p>
         <p style="margin-bottom:24px;">
           Tu as été invité(e) à rejoindre l'espace bénévoles de ton église sur <strong>${siteConfig.name}</strong>.
           Clique sur le bouton ci-dessous pour créer ton mot de passe et accéder à ton espace.
@@ -61,7 +109,7 @@ export async function sendInviteEmail({
       </div>
     `,
   })
-  if (error) throw new Error(`Resend sendInviteEmail: ${error.message} (to: ${to})`)
+  if (error) throw new Error(`Resend sendInviteEmail: ${error.message}`)
 }
 
 export async function sendPasswordResetEmail({
@@ -80,7 +128,7 @@ export async function sendPasswordResetEmail({
     subject: `Réinitialisation de ton mot de passe — ${siteConfig.name}`,
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${firstName},</p>
+        <p style="margin-bottom:8px;">Bonjour ${esc(firstName)},</p>
         <p style="margin-bottom:24px;">
           Tu as demandé à réinitialiser ton mot de passe pour ton espace <strong>${siteConfig.name}</strong>.
           Clique sur le bouton ci-dessous pour choisir un nouveau mot de passe.
@@ -96,7 +144,7 @@ export async function sendPasswordResetEmail({
       </div>
     `,
   })
-  if (error) throw new Error(`Resend sendPasswordResetEmail: ${error.message} (to: ${to})`)
+  if (error) throw new Error(`Resend sendPasswordResetEmail: ${error.message}`)
 }
 
 export async function sendCancellationNotificationEmail({
@@ -106,6 +154,7 @@ export async function sendCancellationNotificationEmail({
   serviceDate,
   positionName,
   teamName,
+  timeZone,
 }: {
   to: string
   volunteerName: string
@@ -113,13 +162,10 @@ export async function sendCancellationNotificationEmail({
   serviceDate: string
   positionName: string | null
   teamName: string | null
+  /** Fuseau de l'église (churches.timezone) */
+  timeZone: string
 }) {
-  const date = new Date(serviceDate).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
-  const time = new Date(serviceDate).toLocaleTimeString('fr-FR', {
-    hour: '2-digit', minute: '2-digit',
-  })
+  const { date, time } = serviceDateTime(serviceDate, timeZone)
   const siteUrl = getSiteUrl()
   const resend = getResend()
 
@@ -131,14 +177,14 @@ export async function sendCancellationNotificationEmail({
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
         <p style="margin-bottom:8px;">Bonjour,</p>
         <p style="margin-bottom:16px;">
-          <strong>${volunteerName}</strong> s'est désisté(e) pour le service suivant :
+          <strong>${esc(volunteerName)}</strong> s'est désisté(e) pour le service suivant :
         </p>
 
         <div style="background:#fff7ed;border-radius:10px;padding:18px 20px;margin-bottom:20px;border-left:4px solid #f97316;">
-          <p style="margin:0;font-size:16px;font-weight:600;">${planTitle}</p>
+          <p style="margin:0;font-size:16px;font-weight:600;">${esc(planTitle)}</p>
           <p style="margin:6px 0 0;color:#555;font-size:14px;text-transform:capitalize;">${date} à ${time}</p>
-          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${teamName}</p>` : ''}
-          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Poste : ${positionName}</p>` : ''}
+          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${esc(teamName)}</p>` : ''}
+          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Poste : ${esc(positionName)}</p>` : ''}
         </div>
 
         <p style="margin-bottom:20px;color:#555;font-size:14px;">
@@ -156,7 +202,7 @@ export async function sendCancellationNotificationEmail({
       </div>
     `,
   })
-  if (errCancel) throw new Error(`Resend sendCancellationEmail: ${errCancel.message} (to: ${to})`)
+  if (errCancel) throw new Error(`Resend sendCancellationEmail: ${errCancel.message}`)
 }
 
 export async function sendReminderEmail({
@@ -170,6 +216,7 @@ export async function sendReminderEmail({
   daysLeft,
   isPending = false,
   isExternal = false,
+  timeZone,
 }: {
   to: string
   firstName: string
@@ -181,18 +228,15 @@ export async function sendReminderEmail({
   daysLeft: number
   isPending?: boolean
   isExternal?: boolean
+  /** Fuseau de l'église (churches.timezone) */
+  timeZone: string
 }) {
-  const date = new Date(serviceDate).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
-  const time = new Date(serviceDate).toLocaleTimeString('fr-FR', {
-    hour: '2-digit', minute: '2-digit',
-  })
+  const { date, time } = serviceDateTime(serviceDate, timeZone)
   const siteUrl = getSiteUrl()
   const resend = getResend()
 
   const responseUrl = isExternal
-    ? `${siteUrl}/espace/repondre-ext/${assignmentId}`
+    ? externalResponseUrl(assignmentId)
     : `${siteUrl}/espace/dashboard`
 
   const label = daysLeft === 1 ? 'demain' : `dans ${daysLeft} jours`
@@ -232,17 +276,17 @@ export async function sendReminderEmail({
   const { error } = await resend.emails.send({
     from: emailFrom(),
     to,
-    subject: `${subjectPrefix} · ${buildSubject(planTitle, serviceDate, positionName)}`,
+    subject: `${subjectPrefix} · ${buildSubject(planTitle, serviceDate, positionName, timeZone)}`,
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${firstName},</p>
+        <p style="margin-bottom:8px;">Bonjour ${esc(firstName)},</p>
         <p style="margin-bottom:16px;">${intro}</p>
 
         <div style="${cardStyle}border-radius:10px;padding:18px 20px;margin-bottom:20px;">
-          <p style="margin:0;font-size:16px;font-weight:600;">${planTitle}</p>
+          <p style="margin:0;font-size:16px;font-weight:600;">${esc(planTitle)}</p>
           <p style="margin:6px 0 0;color:#555;font-size:14px;text-transform:capitalize;">${date} à ${time}</p>
-          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${teamName}</p>` : ''}
-          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Poste : ${positionName}</p>` : ''}
+          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${esc(teamName)}</p>` : ''}
+          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Poste : ${esc(positionName)}</p>` : ''}
         </div>
 
         ${ctaHtml}
@@ -254,7 +298,7 @@ export async function sendReminderEmail({
       </div>
     `,
   })
-  if (error) throw new Error(`Resend sendReminderEmail: ${error.message} (to: ${to})`)
+  if (error) throw new Error(`Resend sendReminderEmail: ${error.message}`)
 }
 
 export async function sendExternalGuestInvitationEmail({
@@ -265,6 +309,7 @@ export async function sendExternalGuestInvitationEmail({
   positionName,
   teamName,
   assignmentId,
+  timeZone,
 }: {
   to: string
   guestName: string
@@ -273,39 +318,35 @@ export async function sendExternalGuestInvitationEmail({
   positionName: string | null
   teamName: string | null
   assignmentId: string
+  /** Fuseau de l'église (churches.timezone) */
+  timeZone: string
 }) {
-  const date = new Date(serviceDate).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
-  const time = new Date(serviceDate).toLocaleTimeString('fr-FR', {
-    hour: '2-digit', minute: '2-digit',
-  })
-  const siteUrl = getSiteUrl()
+  const { date, time } = serviceDateTime(serviceDate, timeZone)
   const resend = getResend()
 
   const { error } = await resend.emails.send({
     from: emailFrom(),
     to,
-    subject: buildSubject(planTitle, serviceDate, positionName),
+    subject: buildSubject(planTitle, serviceDate, positionName, timeZone),
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${guestName},</p>
+        <p style="margin-bottom:8px;">Bonjour ${esc(guestName)},</p>
         <p style="margin-bottom:16px;">
           Vous êtes invité(e) à participer au service suivant :
         </p>
 
         <div style="background:#f0faf9;border-radius:10px;padding:18px 20px;margin-bottom:20px;border-left:4px solid #0d9488;">
-          <p style="margin:0;font-size:16px;font-weight:600;">${planTitle}</p>
+          <p style="margin:0;font-size:16px;font-weight:600;">${esc(planTitle)}</p>
           <p style="margin:6px 0 0;color:#555;font-size:14px;text-transform:capitalize;">${date} à ${time}</p>
-          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${teamName}</p>` : ''}
-          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Rôle : ${positionName}</p>` : ''}
+          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${esc(teamName)}</p>` : ''}
+          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Rôle : ${esc(positionName)}</p>` : ''}
         </div>
 
         <p style="margin-bottom:20px;">
           Merci de nous indiquer si vous pouvez participer :
         </p>
 
-        <a href="${siteUrl}/espace/repondre-ext/${assignmentId}"
+        <a href="${externalResponseUrl(assignmentId)}"
            style="display:inline-block;background:#3D7D85;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
           Répondre à l'invitation →
         </a>
@@ -317,7 +358,7 @@ export async function sendExternalGuestInvitationEmail({
       </div>
     `,
   })
-  if (error) throw new Error(`Resend sendExternalGuestInvitationEmail: ${error.message} (to: ${to})`)
+  if (error) throw new Error(`Resend sendExternalGuestInvitationEmail: ${error.message}`)
 }
 
 export async function sendPlanAssignmentEmail({
@@ -328,6 +369,7 @@ export async function sendPlanAssignmentEmail({
   positionName,
   teamName,
   assignmentId,
+  timeZone,
 }: {
   to: string
   firstName: string
@@ -336,30 +378,27 @@ export async function sendPlanAssignmentEmail({
   positionName: string | null
   teamName: string | null
   assignmentId: string
+  /** Fuseau de l'église (churches.timezone) */
+  timeZone: string
 }) {
-  const date = new Date(serviceDate).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
-  const time = new Date(serviceDate).toLocaleTimeString('fr-FR', {
-    hour: '2-digit', minute: '2-digit',
-  })
+  const { date, time } = serviceDateTime(serviceDate, timeZone)
   const siteUrl = getSiteUrl()
   const resend = getResend()
 
   const { error: errPlan } = await resend.emails.send({
     from: emailFrom(),
     to,
-    subject: buildSubject(planTitle, serviceDate, positionName),
+    subject: buildSubject(planTitle, serviceDate, positionName, timeZone),
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${firstName},</p>
+        <p style="margin-bottom:8px;">Bonjour ${esc(firstName)},</p>
         <p style="margin-bottom:16px;">Tu as été planifié(e) pour le service suivant :</p>
 
         <div style="background:#f0faf9;border-radius:10px;padding:18px 20px;margin-bottom:20px;border-left:4px solid #0d9488;">
-          <p style="margin:0;font-size:16px;font-weight:600;">${planTitle}</p>
+          <p style="margin:0;font-size:16px;font-weight:600;">${esc(planTitle)}</p>
           <p style="margin:6px 0 0;color:#555;font-size:14px;text-transform:capitalize;">${date} à ${time}</p>
-          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${teamName}</p>` : ''}
-          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Poste : ${positionName}</p>` : ''}
+          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${esc(teamName)}</p>` : ''}
+          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Poste : ${esc(positionName)}</p>` : ''}
         </div>
 
         <p style="margin-bottom:20px;">
@@ -367,11 +406,11 @@ export async function sendPlanAssignmentEmail({
         </p>
 
         <div style="display:flex;gap:12px;margin-bottom:24px;">
-          <a href="${siteUrl}/espace/repondre/${assignmentId}?status=confirmed"
+          <a href="${memberResponseUrl(assignmentId, 'confirmed')}"
              style="display:inline-block;background:#16a34a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
             ✓ Je confirme
           </a>
-          <a href="${siteUrl}/espace/repondre/${assignmentId}?status=declined"
+          <a href="${memberResponseUrl(assignmentId, 'declined')}"
              style="display:inline-block;background:#dc2626;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
             ✕ Je décline
           </a>
@@ -389,5 +428,5 @@ export async function sendPlanAssignmentEmail({
       </div>
     `,
   })
-  if (errPlan) throw new Error(`Resend sendPlanAssignmentEmail: ${errPlan.message} (to: ${to})`)
+  if (errPlan) throw new Error(`Resend sendPlanAssignmentEmail: ${errPlan.message}`)
 }

@@ -7,7 +7,6 @@ import { ExcludePositionButton } from './ExcludePositionButton'
 import { PlanTimeEditor } from './PlanTimeEditor'
 import { RemoveAssignmentButton } from './RemoveAssignmentButton'
 import type { PlanDetail, TeamDetail } from './getPlanDetail'
-import { INVITE_EXT_ID } from './constants'
 import { IconEnvelope, IconMusicalNote, IconPlay, IconProjector, IconWarning } from '@/app/espace/_components/Icons'
 import { StatusDot } from '../../_components/StatusDot'
 import { FlashMessage } from '../../_components/FlashMessage'
@@ -27,7 +26,8 @@ const DM_SOURCE_POSITIONS = ['Piano', 'Basse', 'Batterie']
 type Props = {
   planId: string
   detail: PlanDetail
-  userId: string
+  /** Personne liée au compte courant dans l'église (null si aucune fiche) */
+  memberId: string | null
   fillKey: string | null
   isAdmin: boolean
   flashError?: string
@@ -41,13 +41,13 @@ function initials(firstName?: string, lastName?: string) {
 }
 
 function PersonCard({ planId, a, returnTo }: { planId: string; a: TeamDetail['assignments'][number]; returnTo: string }) {
-  const isInvite = a.user_id === INVITE_EXT_ID
-  const displayName = isInvite ? (a.external_name ?? 'Invité (Ext)') : `${a.profiles?.first_name} ${a.profiles?.last_name}`
+  const isInvite = a.member_id === null
+  const displayName = isInvite ? (a.external_name ?? 'Invité (Ext)') : `${a.members?.first_name} ${a.members?.last_name}`
   const canSendInvite = isInvite ? !!a.external_email : a.status === 'pending'
   return (
     <div className="bg-white border border-teal/15 rounded-xl px-3.5 py-3 flex items-center gap-3">
       <div className="w-9 h-9 rounded-full bg-teal/10 text-teal-dark flex items-center justify-center font-sans text-xs font-bold shrink-0">
-        {isInvite ? '✦' : initials(a.profiles?.first_name, a.profiles?.last_name)}
+        {isInvite ? '✦' : initials(a.members?.first_name, a.members?.last_name)}
       </div>
       <div className="flex-1 min-w-0">
         {a.positions && (
@@ -116,7 +116,7 @@ function OpenSlotCard({
   )
 }
 
-export function AssignmentBoard({ planId, detail, userId, fillKey, isAdmin, flashError, flashSent, returnTo, onSlotClick }: Props) {
+export function AssignmentBoard({ planId, detail, memberId, fillKey, isAdmin, flashError, flashSent, returnTo, onSlotClick }: Props) {
   const { plan, isRehearsal, teams, noTeamAssignments, planSongs, allSongs, announcements, recurringAnnouncements, sermons, videos } = detail
 
   const { visibleTeams, totalPositions, filledPositions } = useMemo(() => {
@@ -134,7 +134,7 @@ export function AssignmentBoard({ planId, detail, userId, fillKey, isAdmin, flas
   // L'appartenance seule ne suffit pas côté affectation : une équipe encore vide (aucune
   // affectation sur ce service) doit rester dépliée pour ses membres.
   const [expandedTeams, setExpandedTeams] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(teams.map(t => [t.id, t.isMyTeam || t.assignments.some(a => a.user_id === userId)]))
+    Object.fromEntries(teams.map(t => [t.id, t.isMyTeam || t.assignments.some(a => memberId !== null && a.member_id === memberId)]))
   )
   function toggleTeam(teamId: string) {
     setExpandedTeams(prev => ({ ...prev, [teamId]: !prev[teamId] }))
@@ -159,7 +159,7 @@ export function AssignmentBoard({ planId, detail, userId, fillKey, isAdmin, flas
     ))
   }
 
-  const date = new Date(plan.service_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+  const date = new Date(plan.service_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: detail.timeZone })
 
   return (
     <div className="flex-1 min-w-0 space-y-5">
@@ -175,6 +175,7 @@ export function AssignmentBoard({ planId, detail, userId, fillKey, isAdmin, flas
               <PlanTimeEditor
                 planId={planId}
                 serviceDate={plan.service_date}
+                timeZone={detail.timeZone}
                 className="font-sans text-[10px] uppercase tracking-widest font-semibold text-white/70 hover:text-white transition-colors cursor-pointer hover:underline decoration-dotted tabular-nums"
                 inputClassName="font-sans text-[10px] border border-white/30 rounded px-1 bg-white/10 text-white focus:outline-none focus:border-white/60"
               />
@@ -413,7 +414,7 @@ export function AssignmentBoard({ planId, detail, userId, fillKey, isAdmin, flas
           <div className="divide-y divide-teal/10">
             {noTeamAssignments.map(a => (
               <div key={a.id} className="px-5 py-3 flex items-center justify-between gap-3">
-                <p className="font-sans text-sm text-dark font-medium">{a.profiles?.first_name} {a.profiles?.last_name}</p>
+                <p className="font-sans text-sm text-dark font-medium">{a.members?.first_name} {a.members?.last_name}</p>
                 <div className="flex gap-2 items-center">
                   <StatusDot status={a.status} />
                   <RemoveAssignmentButton

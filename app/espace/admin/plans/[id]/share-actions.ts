@@ -1,55 +1,78 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { churchOrNull } from '@/lib/auth/church'
+import { daysFromNow, generateToken, hashToken } from '@/lib/tokens'
 
-async function getAdminIfAllowed() {
-  try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return null
-    const { data: me } = await supabase.from('profiles').select('permission').eq('id', user.id).single()
-    if (!['admin', 'editor', 'super_admin'].includes(me?.permission ?? '')) return null
-    return createAdminClient()
-  } catch { return null }
+/*
+ * Liens de partage d'une setlist (musiciens invités, sans compte).
+ * Seule l'empreinte du jeton est stockée : le lien en clair n'est connu
+ * qu'au moment de sa création.
+ */
+
+const SHARE_LINK_DAYS = 30
+
+export type ShareLinkStatus = { expiresAt: string } | null
+
+/** Contexte responsable + plan relu dans l'église courante, ou null. */
+async function managedPlan(planId: string) {
+  const ctx = await churchOrNull('responsable')
+  if (!ctx || typeof planId !== 'string' || !planId) return null
+  const { data: plan } = await ctx.supabase
+    .from('plans')
+    .select('id')
+    .eq('id', planId)
+    .eq('church_id', ctx.church.churchId)
+    .maybeSingle()
+  return plan ? ctx : null
 }
 
-/** Retourne le token de partage existant ou en génère un nouveau */
-export async function getOrCreateShareToken(planId: string): Promise<string | null> {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return null
-
-  // Lire le token existant
-  const { data: plan } = await admin
-    .from('plans')
-    .select('share_token')
-    .eq('id', planId)
-    .single()
-
-  if (plan?.share_token) return plan.share_token as string
-
-  // Générer via une fonction SQL (gen_random_uuid)
-  const { data: updated } = await admin
-    .from('plans')
-    .update({ share_token: crypto.randomUUID() })
-    .eq('id', planId)
-    .select('share_token')
-    .single()
-
-  return (updated?.share_token as string) ?? null
+/** Lien actif (non révoqué, non expiré) du plan, sans le jeton. */
+export async function getShareLinkStatus(planId: string): Promise<ShareLinkStatus> {
+  const ctx = await managedPlan(planId)
+  if (!ctx) return null
+  const { data } = await ctx.supabase
+    .from('plan_share_links')
+    .select('expires_at')
+    .eq('plan_id', planId)
+    .eq('church_id', ctx.church.churchId)
+    .is('revoked_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .order('expires_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data ? { expiresAt: data.expires_at } : null
 }
 
-/** Régénère un nouveau token (révoque l'ancien lien) */
-export async function regenerateShareToken(planId: string): Promise<string | null> {
-  const admin = await getAdminIfAllowed()
-  if (!admin) return null
+/** Révoque tous les liens encore valides du plan. */
+export async function revokeShareLinks(planId: string): Promise<{ ok: boolean }> {
+  const ctx = await managedPlan(planId)
+  if (!ctx) return { ok: false }
+  const { error } = await ctx.supabase
+    .from('plan_share_links')
+    .update({ revoked_at: new Date().toISOString() })
+    .eq('plan_id', planId)
+    .eq('church_id', ctx.church.churchId)
+    .is('revoked_at', null)
+  return { ok: !error }
+}
 
-  const { data } = await admin
-    .from('plans')
-    .update({ share_token: crypto.randomUUID() })
-    .eq('id', planId)
-    .select('share_token')
-    .single()
+/** Nouveau lien (l'ancien est révoqué). Renvoie le jeton en clair, une seule fois. */
+export async function createShareLink(planId: string): Promise<{ token: string; expiresAt: string } | null> {
+  const ctx = await managedPlan(planId)
+  if (!ctx) return null
 
-  return (data?.share_token as string) ?? null
+  const revoked = await revokeShareLinks(planId)
+  if (!revoked.ok) return null
+
+  const token = generateToken()
+  const expiresAt = daysFromNow(SHARE_LINK_DAYS).toISOString()
+  const { error } = await ctx.supabase.from('plan_share_links').insert({
+    church_id:  ctx.church.churchId,
+    plan_id:    planId,
+    token_hash: hashToken(token),
+    expires_at: expiresAt,
+    created_by: ctx.userId,
+  })
+  if (error) return null
+  return { token, expiresAt }
 }

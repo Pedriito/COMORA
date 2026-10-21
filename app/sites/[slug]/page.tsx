@@ -7,19 +7,15 @@ import Cultes from "@/components/church-site/sections/Cultes";
 import Pasteurs from "@/components/church-site/sections/Pasteurs";
 import Contact from "@/components/church-site/sections/Contact";
 import Footer from "@/components/church-site/sections/Footer";
-import { getChurchBySlug, getChurchSchedules, getChurchSettings } from "@/lib/churchSettings";
+import { getPublicChurchSite } from "@/lib/churchSettings";
 import { churchThemeStyle } from "@/lib/brand/theme";
 
 export const revalidate = 3600;
 
 async function loadChurch(slug: string) {
-  const church = await getChurchBySlug(slug);
-  if (!church) notFound();
-  const [settings, schedules] = await Promise.all([
-    getChurchSettings(church.id, church.name),
-    getChurchSchedules(church.id),
-  ]);
-  return { church, settings, schedules };
+  const site = await getPublicChurchSite(slug);
+  if (!site) notFound();
+  return site;
 }
 
 export async function generateMetadata({ params }: PageProps<"/sites/[slug]">): Promise<Metadata> {

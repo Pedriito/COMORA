@@ -1,26 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ok, makeFakeSupabase, type FakeResponse } from '@/tests/helpers/fakeSupabase'
 
-const { redirectMock, createClientMock, createAdminClientMock } = vi.hoisted(() => ({
+const { redirectMock, requireChurchMock } = vi.hoisted(() => ({
   redirectMock: vi.fn((url: string) => { throw new Error(`NEXT_REDIRECT:${url}`) }),
-  createClientMock: vi.fn(),
-  createAdminClientMock: vi.fn(),
+  requireChurchMock: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ redirect: redirectMock }))
-vi.mock('@/lib/supabase/server', () => ({ createClient: createClientMock }))
-vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: createAdminClientMock }))
+vi.mock('@/lib/auth/church', () => ({ requireChurch: requireChurchMock }))
 
 const { computeAutoFillProposal } = await import('./computeAutoFill')
 
-/** Client "cookie" utilisé par `requireAdmin()` : auth.getUser() + vérification de permission. */
-function fakeSessionClient(permission = 'admin') {
-  return {
-    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'admin-1' } } }) },
-    from: () => ({
-      select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { permission } }) }) }),
-    }),
-  }
+/** Contexte d'église simulé : le client de session est le faux Supabase du test. */
+function ctxWith(supabase: unknown) {
+  return { supabase, userId: 'admin-1', memberId: 'member-1', church: { churchId: 'church-1', role: 'responsable', isPastoral: false } }
 }
 
 const TARGET_PLAN = {
@@ -33,36 +26,36 @@ const TARGET_PLAN = {
 const TEAMS = [
   { id: 'team-1', name: 'Louange', positions: [{ id: 'pos-1', name: 'Guitare', team_id: 'team-1' }] },
 ]
-const MEMBER_POSITIONS = [{ user_id: 'user-1', position_id: 'pos-1' }]
-const PROFILES = [{ id: 'user-1', first_name: 'Alice', last_name: 'A', desired_frequency: null }]
+const MEMBER_POSITIONS = [{ member_id: 'user-1', position_id: 'pos-1' }]
+const MEMBERS = [{ id: 'user-1', first_name: 'Alice', last_name: 'A', desired_frequency: null }]
 
 /** Fixture "chemin heureux" complet : un plan, une équipe/poste, un bénévole qualifié,
  *  aucune affectation existante, aucune indisponibilité, aucun historique. */
 function setupAdminClient(overrides: Partial<Record<string, FakeResponse[]>> = {}) {
-  createAdminClientMock.mockReturnValue(
+  requireChurchMock.mockResolvedValue(ctxWith(
     makeFakeSupabase({
+      churches: [ok({ timezone: 'Europe/Paris' })],
       plans: [ok([TARGET_PLAN]), ok([])], // 1er appel = plans de la plage, 2e = historique
       teams: [ok(TEAMS)],
       member_positions: [ok(MEMBER_POSITIONS)],
-      profiles: [ok(PROFILES)],
+      members: [ok(MEMBERS)],
       blockout_dates: [ok([])],
       plan_assignments: [ok([])],
       ...overrides,
     })
-  )
+  ))
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  createClientMock.mockResolvedValue(fakeSessionClient())
 })
 
 describe('computeAutoFillProposal — permission', () => {
-  it('redirige si le compte connecté ne peut pas gérer le planning', async () => {
-    createClientMock.mockResolvedValue(fakeSessionClient('viewer'))
-    createAdminClientMock.mockReturnValue(makeFakeSupabase({}))
+  it('exige le rôle responsable, et ne lit rien si requireChurch redirige', async () => {
+    requireChurchMock.mockRejectedValue(new Error('NEXT_REDIRECT:/espace/dashboard'))
 
     await expect(computeAutoFillProposal('2026-12-01', '2026-12-31')).rejects.toThrow('NEXT_REDIRECT')
+    expect(requireChurchMock).toHaveBeenCalledWith('responsable')
   })
 })
 
@@ -71,6 +64,7 @@ describe('computeAutoFillProposal — validation', () => {
     setupAdminClient()
     const result = await computeAutoFillProposal('2026-12-10', '2026-12-01')
     expect(result).toEqual({ ok: false, error: 'Plage de dates invalide.' })
+    expect(await computeAutoFillProposal('pas-une-date', '2026-12-01')).toEqual({ ok: false, error: 'Plage de dates invalide.' })
   })
 })
 

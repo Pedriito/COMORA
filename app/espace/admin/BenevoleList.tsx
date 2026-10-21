@@ -4,14 +4,21 @@ import { useState, useTransition, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { deleteBenevole, resendInviteFromList } from './actions'
 import { IconEnvelope } from '@/app/espace/_components/Icons'
-import { permissionLabels, statusLabels } from '@/lib/labels'
+import { churchRoleLabels, statusLabels } from '@/lib/labels'
 
-type Benevole = {
+export type Benevole = {
   id: string
   first_name: string
   last_name: string
-  permission: string
   status: string
+  /** Rôle du compte dans l'église (visible des administrateurs seulement). */
+  role: string | null
+  hasAccount: boolean
+}
+
+function accessLabel(b: Benevole) {
+  if (!b.hasAccount) return 'Sans compte'
+  return b.role ? churchRoleLabels[b.role] ?? b.role : '—'
 }
 
 function ResendButton({ benevoleId, onSuccess }: { benevoleId: string; onSuccess: () => void }) {
@@ -20,7 +27,7 @@ function ResendButton({ benevoleId, onSuccess }: { benevoleId: string; onSuccess
 
   function handleClick() {
     const fd = new FormData()
-    fd.set('user_id', benevoleId)
+    fd.set('member_id', benevoleId)
     startTransition(async () => {
       const result = await resendInviteFromList(null, fd)
       if (result.ok) {
@@ -51,15 +58,15 @@ function ResendButton({ benevoleId, onSuccess }: { benevoleId: string; onSuccess
   )
 }
 
-function avatarColors(permission: string) {
-  if (permission === 'admin' || permission === 'super_admin') return 'bg-green-100 text-green-700'
-  if (permission === 'editor') return 'bg-blue-100 text-blue-700'
+function avatarColors(role: string | null) {
+  if (role === 'admin') return 'bg-green-100 text-green-700'
+  if (role === 'responsable') return 'bg-blue-100 text-blue-700'
   return 'bg-teal/10 text-teal/60'
 }
 
-function permDot(permission: string) {
-  if (permission === 'admin' || permission === 'super_admin') return 'text-green-500'
-  if (permission === 'editor') return 'text-blue-500'
+function permDot(role: string | null) {
+  if (role === 'admin') return 'text-green-500'
+  if (role === 'responsable') return 'text-blue-500'
   return 'text-dark/30'
 }
 
@@ -69,7 +76,7 @@ const TrashIcon = () => (
   </svg>
 )
 
-export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
+export function BenevoleList({ benevoles, canManage }: { benevoles: Benevole[]; canManage: boolean }) {
   const [query, setQuery] = useState('')
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -125,7 +132,7 @@ export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
                 <tr key={b.id} className={i % 2 === 0 ? 'bg-white' : 'bg-teal-50/40'}>
                   <td className="px-6 py-4 font-sans text-sm text-dark font-medium">
                     <div className="flex items-center gap-3">
-                      <span className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium font-sans ${avatarColors(b.permission)}`}>
+                      <span className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium font-sans ${avatarColors(b.role)}`}>
                         {b.first_name[0]}{b.last_name[0]}
                       </span>
                       <Link href={`/espace/admin/benevoles/${b.id}`} className="hover:text-teal transition-colors">
@@ -135,8 +142,8 @@ export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
                   </td>
                   <td className="px-6 py-4 font-sans text-xs text-dark/60">
                     <span className="flex items-center gap-1.5">
-                      <span className={permDot(b.permission)}>●</span>
-                      {permissionLabels[b.permission] ?? b.permission}
+                      <span className={permDot(b.role)}>●</span>
+                      {accessLabel(b)}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -145,13 +152,13 @@ export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    {confirmId === b.id ? (
+                    {!canManage ? null : confirmId === b.id ? (
                       <div className="flex items-center justify-end gap-2">
                         <span className="text-xs text-dark/50 font-sans">Confirmer ?</span>
                         <form action={deleteBenevole}>
-                          <input type="hidden" name="user_id" value={b.id} />
+                          <input type="hidden" name="member_id" value={b.id} />
                           <button type="submit" className="text-xs text-red-500 hover:text-red-600 font-sans font-medium cursor-pointer">
-                            Oui, supprimer
+                            Oui, retirer
                           </button>
                         </form>
                         <button onClick={() => setConfirmId(null)} className="text-xs text-dark/40 hover:text-dark font-sans cursor-pointer">
@@ -169,7 +176,7 @@ export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
                         <button
                           onClick={() => setConfirmId(b.id)}
                           className="text-dark/30 hover:text-red-400 transition-colors cursor-pointer"
-                          title="Supprimer"
+                          title="Retirer de l’église"
                         >
                           <TrashIcon />
                         </button>
@@ -201,7 +208,7 @@ export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
             <div key={b.id} className="bg-white rounded-2xl border border-teal/20 px-4 py-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3 min-w-0">
-                  <span className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium font-sans ${avatarColors(b.permission)}`}>
+                  <span className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium font-sans ${avatarColors(b.role)}`}>
                     {b.first_name[0]}{b.last_name[0]}
                   </span>
                   <div className="min-w-0">
@@ -210,8 +217,8 @@ export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
                   </Link>
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <span className="font-sans text-xs text-dark/50 flex items-center gap-1">
-                      <span className={permDot(b.permission)}>●</span>
-                      {permissionLabels[b.permission] ?? b.permission}
+                      <span className={permDot(b.role)}>●</span>
+                      {accessLabel(b)}
                     </span>
                     <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-sans font-medium ${st.color}`}>
                       {st.label}
@@ -219,6 +226,7 @@ export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
                   </div>
                 </div>
               </div>
+                {canManage && (
                 <div className="flex items-center gap-3 shrink-0">
                   {b.status === 'invited' && (
                     <ResendButton
@@ -229,9 +237,9 @@ export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
                   {confirmId === b.id ? (
                     <div className="flex flex-col items-end gap-1">
                       <form action={deleteBenevole}>
-                        <input type="hidden" name="user_id" value={b.id} />
+                        <input type="hidden" name="member_id" value={b.id} />
                         <button type="submit" className="text-xs text-red-500 hover:text-red-600 font-sans font-medium cursor-pointer">
-                          Supprimer
+                          Retirer
                         </button>
                       </form>
                       <button onClick={() => setConfirmId(null)} className="text-xs text-dark/40 hover:text-dark font-sans cursor-pointer">
@@ -242,12 +250,13 @@ export function BenevoleList({ benevoles }: { benevoles: Benevole[] }) {
                     <button
                       onClick={() => setConfirmId(b.id)}
                       className="text-dark/30 hover:text-red-400 transition-colors cursor-pointer"
-                      title="Supprimer"
+                      title="Retirer de l’église"
                     >
                       <TrashIcon />
                     </button>
                   )}
                 </div>
+                )}
               </div>
             </div>
           )

@@ -1,5 +1,5 @@
 import { cache } from 'react'
-import { createClient } from '@/lib/supabase/server'
+import { createAnonClient } from '@/lib/supabase/anon'
 import type { ChurchBranding } from '@/lib/brand/theme'
 
 export type ChurchSettings = {
@@ -48,47 +48,52 @@ export function emptyChurchSettings(churchName = ''): ChurchSettings {
 
 export type Church = { id: string; name: string; slug: string; branding?: ChurchBranding | null }
 
-/** Église publiée sous ce slug, ou null. */
-export const getChurchBySlug = cache(async (slug: string): Promise<Church | null> => {
+/** Réglages d'une ligne `church_settings` (ou de la partie « settings » du site public), nom de l'église en plus. */
+export function toChurchSettings(
+  row: Partial<Omit<ChurchSettings, 'church_name'>> | null | undefined,
+  churchName: string,
+): ChurchSettings {
+  const base = emptyChurchSettings(churchName)
+  if (!row) return base
+  return {
+    ...base,
+    tagline: row.tagline ?? '',
+    address_street: row.address_street ?? '',
+    address_city: row.address_city ?? '',
+    address_zip: row.address_zip ?? '',
+    address_dept: row.address_dept ?? '',
+    email: row.email ?? '',
+    youtube_url: row.youtube_url ?? '',
+    maps_url: row.maps_url ?? '',
+    pastors_names: row.pastors_names ?? '',
+    pastors_photo_url: row.pastors_photo_url ?? '',
+    youtube_channel_id: row.youtube_channel_id ?? null,
+  }
+}
+
+export type PublicChurchSite = { church: Church; settings: ChurchSettings; schedules: ChurchSchedule[] }
+
+/**
+ * Site public d'une église, par la fonction `public_church_site` : seule porte
+ * d'entrée du rôle anonyme (aucune lecture directe des tables). Null si le slug est inconnu.
+ */
+export const getPublicChurchSite = cache(async (slug: string): Promise<PublicChurchSite | null> => {
   try {
-    const supabase = await createClient()
-    const { data } = await supabase
-      .from('churches')
-      .select('*')
-      .eq('slug', slug)
-      .maybeSingle()
-    return data ?? null
+    const supabase = createAnonClient()
+    if (!supabase) return null
+    const { data } = await supabase.rpc('public_church_site', { target_slug: slug })
+    const site = data as {
+      church?: Church
+      settings?: Partial<Omit<ChurchSettings, 'church_name'>> | null
+      schedules?: ChurchSchedule[] | null
+    } | null
+    if (!site?.church) return null
+    return {
+      church: site.church,
+      settings: toChurchSettings(site.settings, site.church.name),
+      schedules: site.schedules ?? [],
+    }
   } catch {
     return null
-  }
-})
-
-export const getChurchSettings = cache(async (churchId: string, churchName = ''): Promise<ChurchSettings> => {
-  const fallback = emptyChurchSettings(churchName)
-  try {
-    const supabase = await createClient()
-    const { data } = await supabase
-      .from('church_settings')
-      .select('*')
-      .eq('church_id', churchId)
-      .maybeSingle()
-    return data ? { ...fallback, ...data } : fallback
-  } catch {
-    return fallback
-  }
-})
-
-export const getChurchSchedules = cache(async (churchId: string): Promise<ChurchSchedule[]> => {
-  try {
-    const supabase = await createClient()
-    const { data } = await supabase
-      .from('church_schedules')
-      .select('*')
-      .eq('church_id', churchId)
-      .eq('active', true)
-      .order('sort_order')
-    return data ?? []
-  } catch {
-    return []
   }
 })

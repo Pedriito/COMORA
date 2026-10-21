@@ -1,67 +1,75 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { redirect } from 'next/navigation'
+import { requireChurch } from '@/lib/auth/church'
 import { revalidatePath } from 'next/cache'
+import { PUBLIC_BUCKET, churchFilePath, extensionFor, isChurchPath } from '@/lib/storage'
 
 async function requireAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/espace/login')
-  const { data: me } = await supabase
-    .from('profiles')
-    .select('permission, church_id')
-    .eq('id', user.id)
-    .single()
-  if (!me || !['admin', 'super_admin'].includes(me.permission ?? '')) redirect('/espace/dashboard')
-  const church_id = me.church_id as string
-  return { admin: createAdminClient(), church_id }
+  const ctx = await requireChurch('admin')
+  return { db: ctx.supabase, church_id: ctx.church.churchId }
+}
+
+const clean = (formData: FormData, name: string) => String(formData.get(name) ?? '').trim()
+
+/** Racine du dossier public d'une église pour reconnaître ses propres fichiers dans une URL. */
+function storagePathFromUrl(url: string): string | null {
+  const marker = `/object/public/${PUBLIC_BUCKET}/`
+  const i = url.indexOf(marker)
+  return i === -1 ? null : decodeURIComponent(url.slice(i + marker.length))
 }
 
 export async function saveChurchSettings(formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const { admin, church_id } = await requireAdmin()
+  const { db, church_id } = await requireAdmin()
 
-  // Upload photo des pasteurs si un fichier est fourni
-  let pastors_photo_url = (formData.get('pastors_photo_url') as string) || ''
-  const photoFile = formData.get('pastors_photo_file') as File | null
-  if (photoFile && photoFile.size > 0) {
-    const ext = photoFile.name.split('.').pop() ?? 'jpg'
-    const path = `site/${church_id}/pastors-${Date.now()}.${ext}`
-    const buffer = Buffer.from(await photoFile.arrayBuffer())
-    const { error: storageError } = await admin.storage
-      .from('media')
-      .upload(path, buffer, { contentType: photoFile.type, upsert: true })
-    if (!storageError) {
-      const { data: urlData } = admin.storage.from('media').getPublicUrl(path)
-      pastors_photo_url = urlData.publicUrl
-    }
+  const name = clean(formData, 'church_name')
+  if (!name || name.length > 160) return { ok: false, error: 'Le nom de l’église est obligatoire (160 caractères au maximum).' }
+
+  // Photo des pasteurs : image vérifiée, nom aléatoire dans le dossier « site » de l'église
+  let pastors_photo_url = clean(formData, 'pastors_photo_url')
+  const photoFile = formData.get('pastors_photo_file')
+  if (photoFile instanceof File && photoFile.size > 0) {
+    const ext = extensionFor('image', photoFile.type)
+    if (!ext) return { ok: false, error: 'Format d’image non accepté (JPEG, PNG, WebP, GIF ou AVIF).' }
+    if (photoFile.size > 5 * 1024 * 1024) return { ok: false, error: 'L’image est trop lourde (5 Mo au maximum).' }
+
+    const path = churchFilePath(church_id, 'site', ext)
+    const { error: storageError } = await db.storage
+      .from(PUBLIC_BUCKET)
+      .upload(path, Buffer.from(await photoFile.arrayBuffer()), { contentType: photoFile.type })
+    if (storageError) return { ok: false, error: 'La photo n’a pas pu être envoyée. Réessaie.' }
+
+    // Ancienne photo supprimée seulement si elle est bien dans le dossier de cette église
+    const previous = storagePathFromUrl(pastors_photo_url)
+    if (previous && isChurchPath(church_id, previous)) await db.storage.from(PUBLIC_BUCKET).remove([previous])
+    pastors_photo_url = db.storage.from(PUBLIC_BUCKET).getPublicUrl(path).data.publicUrl
   }
 
-  const { error } = await admin.from('church_settings').upsert({
+  const { error: nameError } = await db.from('churches').update({ name }).eq('id', church_id)
+  if (nameError) return { ok: false, error: 'Les modifications n’ont pas pu être enregistrées. Réessaie.' }
+
+  const { error } = await db.from('church_settings').upsert({
     church_id,
-    church_name:          (formData.get('church_name') as string)?.trim(),
-    tagline:              (formData.get('tagline') as string)?.trim(),
-    address_street:       (formData.get('address_street') as string)?.trim(),
-    address_city:         (formData.get('address_city') as string)?.trim(),
-    address_zip:          (formData.get('address_zip') as string)?.trim(),
-    address_dept:         (formData.get('address_dept') as string)?.trim(),
-    email:                (formData.get('email') as string)?.trim().toLowerCase(),
-    youtube_url:          (formData.get('youtube_url') as string)?.trim(),
-    youtube_channel_id:   (formData.get('youtube_channel_id') as string)?.trim() || null,
-    maps_url:             (formData.get('maps_url') as string)?.trim(),
-    pastors_names:        (formData.get('pastors_names') as string)?.trim(),
+    tagline:              clean(formData, 'tagline'),
+    address_street:       clean(formData, 'address_street'),
+    address_city:         clean(formData, 'address_city'),
+    address_zip:          clean(formData, 'address_zip'),
+    address_dept:         clean(formData, 'address_dept'),
+    email:                clean(formData, 'email').toLowerCase(),
+    youtube_url:          clean(formData, 'youtube_url'),
+    youtube_channel_id:   clean(formData, 'youtube_channel_id') || null,
+    maps_url:             clean(formData, 'maps_url'),
+    pastors_names:        clean(formData, 'pastors_names'),
     pastors_photo_url,
     updated_at:           new Date().toISOString(),
   }, { onConflict: 'church_id' })
 
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: 'Les modifications n’ont pas pu être enregistrées. Réessaie.' }
   revalidatePath('/', 'layout')
   return { ok: true }
 }
 
 export async function saveSchedule(formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const { admin, church_id } = await requireAdmin()
+  const { db, church_id } = await requireAdmin()
   const id = formData.get('id') as string | null
 
   const payload = {
@@ -75,24 +83,24 @@ export async function saveSchedule(formData: FormData): Promise<{ ok: boolean; e
   }
 
   const { error } = id
-    ? await admin.from('church_schedules').update(payload).eq('id', id).eq('church_id', church_id)
-    : await admin.from('church_schedules').insert(payload)
+    ? await db.from('church_schedules').update(payload).eq('id', id).eq('church_id', church_id)
+    : await db.from('church_schedules').insert(payload)
 
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: 'Le créneau n’a pas pu être enregistré. Réessaie.' }
   revalidatePath('/', 'layout')
   return { ok: true }
 }
 
 export async function deleteSchedule(id: string): Promise<void> {
-  const { admin, church_id } = await requireAdmin()
-  await admin.from('church_schedules').delete().eq('id', id).eq('church_id', church_id)
+  const { db, church_id } = await requireAdmin()
+  await db.from('church_schedules').delete().eq('id', id).eq('church_id', church_id)
   revalidatePath('/', 'layout')
 }
 
 export async function reorderSchedules(ids: string[]): Promise<void> {
-  const { admin, church_id } = await requireAdmin()
+  const { db, church_id } = await requireAdmin()
   await Promise.all(ids.map((id, i) =>
-    admin.from('church_schedules').update({ sort_order: i + 1 }).eq('id', id).eq('church_id', church_id)
+    db.from('church_schedules').update({ sort_order: i + 1 }).eq('id', id).eq('church_id', church_id)
   ))
   revalidatePath('/', 'layout')
 }

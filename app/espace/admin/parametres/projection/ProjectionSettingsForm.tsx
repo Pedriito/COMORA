@@ -3,24 +3,26 @@
 import { useEffect, useState, useTransition } from 'react'
 import Image from 'next/image'
 import { saveProjectionSettings } from './actions'
+import { createClient } from '@/lib/supabase/client'
+import { projectionChannel, SETTINGS_EVENT, type ProjectionSettings } from '@/lib/projectionSettings'
 
-type BgType        = 'color' | 'gradient' | 'image'
-type TextTransform = 'uppercase' | 'capitalize' | 'small-caps' | 'none'
-
-type ProjectionSettings = {
-  id: string
-  bg_type: BgType; bg_color: string; bg_gradient: string | null
-  bg_image_url: string | null; bg_blur: number; overlay_opacity: number
-  font_family: string; text_color: string; text_shadow: boolean
-  text_transform: TextTransform; font_size_scale: number; text_max_width: number
-  ann_bg_type: BgType; ann_bg_color: string; ann_bg_gradient: string | null
-  ann_bg_image_url: string | null; ann_bg_blur: number; ann_bg_overlay_opacity: number
-  ann_font_family: string; ann_text_color: string; ann_text_shadow: boolean
-  ann_text_transform: TextTransform; ann_title_font_size_scale: number; ann_font_size_scale: number; ann_text_max_width: number
-}
+type BgType        = ProjectionSettings['bg_type']
+type TextTransform = ProjectionSettings['text_transform']
 
 type MediaFile = { id: string; name: string; url: string }
-type Props = { initial: ProjectionSettings; mediaFiles: MediaFile[] }
+type Props = { churchId: string; initial: ProjectionSettings; mediaFiles: MediaFile[] }
+
+/** Prévient les projecteurs ouverts de l'église (canal privé, réservé aux responsables). */
+async function broadcastSettings(churchId: string, settings: ProjectionSettings) {
+  const supabase = createClient()
+  await supabase.realtime.setAuth()
+  const channel = supabase.channel(projectionChannel(churchId), { config: { private: true } })
+  try {
+    await channel.httpSend(SETTINGS_EVENT, settings)
+  } finally {
+    await supabase.removeChannel(channel)
+  }
+}
 
 const GRADIENTS = [
   { label: 'Nuit profonde',  value: 'linear-gradient(135deg, #0f0c29, #302b63, #24243e)' },
@@ -266,7 +268,7 @@ function TextSettingsPicker({
 }
 
 // ── Composant principal ───────────────────────────────────────────────────────
-export default function ProjectionSettingsForm({ initial, mediaFiles }: Props) {
+export default function ProjectionSettingsForm({ churchId, initial, mediaFiles }: Props) {
   const [s, setS] = useState<ProjectionSettings>({
     ...initial,
     text_transform:      (initial.text_transform      ?? 'uppercase') as TextTransform,
@@ -311,7 +313,11 @@ export default function ProjectionSettingsForm({ initial, mediaFiles }: Props) {
     setSaveError(null)
     startTransition(async () => {
       const result = await saveProjectionSettings(s)
-      if (result.ok) { setSaved(true); setTimeout(() => setSaved(false), 2500) }
+      if (result.ok) {
+        setSaved(true); setTimeout(() => setSaved(false), 2500)
+        // Diffusion au mieux : un projecteur ouvert se mettra aussi à jour au prochain chargement
+        if (result.settings) broadcastSettings(churchId, result.settings).catch(() => {})
+      }
       else setSaveError(result.error ?? 'Erreur inconnue')
     })
   }

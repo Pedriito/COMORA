@@ -55,7 +55,7 @@ type Song = {
   planSongId: string
   orderIndex: number
   keySelected: string | null
-  song: { id: number; title: string }
+  song: { id: string; title: string }
   arrangement: {
     id: string
     name: string
@@ -75,6 +75,7 @@ type PlanVideo = { id: string; title: string | null; url: string; order_index: n
 
 type Props = {
   planId: string
+  churchId: string
   planTitle: string
   songs: Song[]
   announcements: Announcement[]
@@ -83,7 +84,7 @@ type Props = {
   autoProjection?: boolean
 }
 
-export function SetlistView({ planId, planTitle, songs, announcements, sermons, videos, autoProjection }: Props) {
+export function SetlistView({ planId, churchId, planTitle, songs, announcements, sermons, videos, autoProjection }: Props) {
   const router = useRouter()
   const [activeIdx, setActiveIdx] = useState(0)
   const [mobileView, setMobileView] = useState<'list' | 'chart'>('list')
@@ -143,6 +144,7 @@ export function SetlistView({ planId, planTitle, songs, announcements, sermons, 
       {projecting && (
         <ProjectionView
           planId={planId}
+          churchId={churchId}
           songs={songs}
           announcements={announcements}
           sermons={sermons}

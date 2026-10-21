@@ -23,7 +23,7 @@ type ImportedValues = {
 
 type Props = {
   mode: 'create' | 'edit'
-  songId?: number
+  songId?: string
   arrangement?: Arrangement
   defaultValues?: { title: string }
   importedValues?: ImportedValues
