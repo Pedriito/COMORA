@@ -39,9 +39,8 @@ alter table public.invitations enable row level security;
 -- Aucune politique : seul le rôle service (serveur) y accède.
 revoke all on table public.invitations from anon, authenticated;
 
--- 3. Comptes créés depuis une invitation (lié à Supabase Auth).
--- Parcours d'accès anticipé, remplacé par l'inscription libre à l'étape 3.
-create table if not exists public.early_access_accounts (
+-- 3. Profil des comptes créés depuis une invitation (lié à Supabase Auth)
+create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   created_at timestamptz not null default now(),
   waitlist_id uuid references public.waitlist (id) on delete set null,
@@ -50,13 +49,13 @@ create table if not exists public.early_access_accounts (
   role text
 );
 
-alter table public.early_access_accounts enable row level security;
+alter table public.profiles enable row level security;
 
-revoke all on table public.early_access_accounts from anon, authenticated;
-grant select on table public.early_access_accounts to authenticated;
+revoke all on table public.profiles from anon, authenticated;
+grant select on table public.profiles to authenticated;
 
 -- Chaque utilisateur connecté lit uniquement son propre profil
-create policy "lecture de son compte"
-  on public.early_access_accounts for select
+create policy "lecture de son profil"
+  on public.profiles for select
   to authenticated
   using ((select auth.uid()) = id);
