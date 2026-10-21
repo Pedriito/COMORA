@@ -109,6 +109,15 @@ Règles du cloisonnement :
 - la pastorale n'est lisible que par le rôle `pastoral` ; l'équipe Comora (`platform_admins`) n'a accès à aucune donnée d'église ;
 - le site public passe par la fonction `public_church_site(slug)`, seule ouverte sans compte.
 
+### Visiter l'espace avec des données de démonstration
+
+```bash
+supabase start && supabase db reset
+npx tsx scripts/seed-demo.ts      # église fictive « demo » (base locale uniquement)
+```
+
+Comptes créés (mot de passe affiché par le script) : `admin@`, `responsable@` et `membre@demo.comora.test`. Site public : `/sites/demo`.
+
 ### Tests d'isolation
 
 ```bash
