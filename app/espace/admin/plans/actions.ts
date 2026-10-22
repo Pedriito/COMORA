@@ -499,6 +499,7 @@ export async function sendSingleInvitation(formData: FormData) {
         teamName: team?.name ?? null,
         assignmentId,
         timeZone,
+        churchName: ctx.church.churchName,
       })
       await supabase.from('plan_assignments').update({ invitation_sent_at: new Date().toISOString() }).eq('id', assignmentId).eq('church_id', churchId)
     } catch (err) {
@@ -538,6 +539,7 @@ export async function sendSingleInvitation(formData: FormData) {
       teamName: team?.name ?? null,
       assignmentId,
       timeZone,
+      churchName: ctx.church.churchName,
     })
     await supabase.from('plan_assignments').update({ invitation_sent_at: new Date().toISOString() }).eq('id', assignmentId).eq('church_id', churchId)
 
@@ -668,6 +670,7 @@ export async function cancelAssignment(formData: FormData) {
           positionName: position?.name ?? null,
           teamName: team?.name ?? null,
           timeZone,
+          churchName: ctx.church.churchName,
         })
       } catch (err) {
         console.error('[cancelAssignment] envoi impossible :', (err as Error)?.message)

@@ -1,8 +1,9 @@
 import 'server-only'
 import { Resend } from 'resend'
-import { siteConfig, siteUrl as getSiteUrl } from '@/lib/site'
+import { appUrl, siteConfig, siteUrl as getSiteUrl } from '@/lib/site'
 import { daysFromNow, signToken, verifyToken } from '@/lib/tokens'
 import { resolveTimeZone } from '@/lib/timezone'
+import { emailButton, emailInfoCard, emailParagraph, esc, renderEmail } from '@/lib/email/layout'
 
 /** Objet des jetons signés des liens de réponse à une affectation. */
 export const ASSIGNMENT_RESPONSE_PURPOSE = 'assignment-response'
@@ -18,6 +19,12 @@ export function verifyAssignmentResponseToken(token: string): string | null {
   return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null
 }
 
+/** Adresse absolue d'une page de l'espace (en local, appUrl() est relative). */
+function appLink(path: string): string {
+  const url = appUrl(path)
+  return url.startsWith('http') ? url : `${getSiteUrl()}${path}`
+}
+
 /** Lien de réponse d'un bénévole (confirmer ou décliner). */
 export function memberResponseUrl(assignmentId: string, status: 'confirmed' | 'declined'): string {
   return `${getSiteUrl()}/espace/repondre/${assignmentResponseToken(assignmentId)}?status=${status}`
@@ -26,16 +33,6 @@ export function memberResponseUrl(assignmentId: string, status: 'confirmed' | 'd
 /** Lien de réponse d'un invité externe. */
 export function externalResponseUrl(assignmentId: string): string {
   return `${getSiteUrl()}/espace/repondre-ext/${assignmentResponseToken(assignmentId)}`
-}
-
-/** Échappe une valeur insérée dans le HTML d'un e-mail (noms, titres saisis). */
-function esc(value: string | null | undefined): string {
-  return (value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 /** Date longue et heure d'un service, dans le fuseau de l'église. */
@@ -75,41 +72,69 @@ function emailFrom(): string {
   return process.env.RESEND_FROM?.trim() || `${siteConfig.name} <bonjour@comora.fr>`
 }
 
-const FOOTER = siteConfig.signature
+async function deliver(label: string, { to, subject, html }: { to: string; subject: string; html: string }) {
+  const { error } = await getResend().emails.send({ from: emailFrom(), to, subject, html })
+  if (error) throw new Error(`Resend ${label}: ${error.message}`)
+}
+
+/** Nom de l'église pour les objets : « … — Église de la Source ». */
+function churchSuffix(churchName?: string | null) {
+  const name = churchName?.trim()
+  return name ? ` — ${name}` : ''
+}
+
+/** Encadré du service : titre, date, équipe, poste. */
+function serviceCard(
+  { planTitle, serviceDate, positionName, teamName, timeZone }: { planTitle: string; serviceDate: string; positionName: string | null; teamName: string | null; timeZone: string },
+  roleLabel: 'Poste' | 'Rôle',
+  tone: 'info' | 'warning' = 'info',
+) {
+  const { date, time } = serviceDateTime(serviceDate, timeZone)
+  return emailInfoCard(
+    [
+      esc(planTitle),
+      `<span style="text-transform:capitalize;">${date}</span> à ${time}`,
+      teamName ? `Équipe : ${esc(teamName)}` : null,
+      positionName ? `${roleLabel} : ${esc(positionName)}` : null,
+    ],
+    tone,
+  )
+}
+
+const IGNORE_HINT = "Si ce message ne vous concerne pas, vous pouvez simplement l'ignorer."
 
 export async function sendInviteEmail({
   to,
   firstName,
   inviteLink,
+  churchName,
 }: {
   to: string
   firstName: string
   inviteLink: string
+  churchName?: string | null
 }) {
-  const resend = getResend()
-  const { error } = await resend.emails.send({
-    from: emailFrom(),
+  const church = churchName?.trim()
+  await deliver('sendInviteEmail', {
     to,
-    subject: `Tu es invité(e) — ${siteConfig.name}`,
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${esc(firstName)},</p>
-        <p style="margin-bottom:24px;">
-          Tu as été invité(e) à rejoindre l'espace bénévoles de ton église sur <strong>${siteConfig.name}</strong>.
-          Clique sur le bouton ci-dessous pour créer ton mot de passe et accéder à ton espace.
-        </p>
-        <a href="${inviteLink}"
-           style="display:inline-block;background:#3D7D85;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
-          Créer mon mot de passe →
-        </a>
-        <p style="margin-top:32px;font-size:12px;color:#999;">
-          ${FOOTER}<br>
-          Si tu n'es pas concerné(e) par ce message, ignore-le.
-        </p>
-      </div>
-    `,
+    subject: church ? `Bienvenue dans l'espace de ${church}` : `Bienvenue sur ${siteConfig.name}`,
+    html: renderEmail({
+      preheader: 'Créez votre mot de passe pour accéder à votre espace.',
+      heading: 'Bienvenue !',
+      churchName: church,
+      body:
+        emailParagraph(`Bonjour ${esc(firstName)},`) +
+        emailParagraph(
+          church
+            ? `<strong>${esc(church)}</strong> vous invite à rejoindre son espace sur ${siteConfig.name}, pour retrouver vos plannings, vos équipes et les informations de l'église.`
+            : `Vous êtes invité(e) à rejoindre l'espace de votre église sur ${siteConfig.name}.`,
+        ) +
+        emailParagraph('Pour commencer, choisissez votre mot de passe :') +
+        emailButton({ label: 'Créer mon mot de passe', url: inviteLink }) +
+        emailParagraph('<span style="font-size:14px;">Ce lien est valable 72 heures et ne peut servir qu’une seule fois.</span>'),
+      reason: `Vous recevez ce message parce que ${church ? `${church} a` : 'votre église a'} saisi votre adresse pour vous inviter. ${IGNORE_HINT}`,
+    }),
   })
-  if (error) throw new Error(`Resend sendInviteEmail: ${error.message}`)
 }
 
 export async function sendPasswordResetEmail({
@@ -121,30 +146,20 @@ export async function sendPasswordResetEmail({
   firstName: string
   resetLink: string
 }) {
-  const resend = getResend()
-  const { error } = await resend.emails.send({
-    from: emailFrom(),
+  await deliver('sendPasswordResetEmail', {
     to,
-    subject: `Réinitialisation de ton mot de passe — ${siteConfig.name}`,
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${esc(firstName)},</p>
-        <p style="margin-bottom:24px;">
-          Tu as demandé à réinitialiser ton mot de passe pour ton espace <strong>${siteConfig.name}</strong>.
-          Clique sur le bouton ci-dessous pour choisir un nouveau mot de passe.
-        </p>
-        <a href="${resetLink}"
-           style="display:inline-block;background:#3D7D85;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
-          Réinitialiser mon mot de passe →
-        </a>
-        <p style="margin-top:32px;font-size:12px;color:#999;">
-          ${FOOTER}<br>
-          Si tu n'es pas à l'origine de cette demande, ignore ce message.
-        </p>
-      </div>
-    `,
+    subject: `Réinitialisation de votre mot de passe — ${siteConfig.name}`,
+    html: renderEmail({
+      preheader: 'Choisissez un nouveau mot de passe.',
+      heading: 'Nouveau mot de passe',
+      body:
+        emailParagraph(`Bonjour ${esc(firstName)},`) +
+        emailParagraph(`Vous avez demandé à réinitialiser le mot de passe de votre espace ${siteConfig.name}. Cliquez sur le bouton pour en choisir un nouveau.`) +
+        emailButton({ label: 'Choisir un nouveau mot de passe', url: resetLink }) +
+        emailParagraph('<span style="font-size:14px;">Ce lien est valable 72 heures et ne peut servir qu’une seule fois.</span>'),
+      reason: `Vous recevez ce message suite à une demande de réinitialisation. Si vous n'en êtes pas à l'origine, ignorez-le : votre mot de passe reste inchangé.`,
+    }),
   })
-  if (error) throw new Error(`Resend sendPasswordResetEmail: ${error.message}`)
 }
 
 export async function sendCancellationNotificationEmail({
@@ -155,6 +170,7 @@ export async function sendCancellationNotificationEmail({
   positionName,
   teamName,
   timeZone,
+  churchName,
 }: {
   to: string
   volunteerName: string
@@ -164,45 +180,23 @@ export async function sendCancellationNotificationEmail({
   teamName: string | null
   /** Fuseau de l'église (churches.timezone) */
   timeZone: string
+  churchName?: string | null
 }) {
-  const { date, time } = serviceDateTime(serviceDate, timeZone)
-  const siteUrl = getSiteUrl()
-  const resend = getResend()
-
-  const { error: errCancel } = await resend.emails.send({
-    from: emailFrom(),
+  await deliver('sendCancellationEmail', {
     to,
-    subject: `Désistement : ${volunteerName} — ${planTitle}`,
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour,</p>
-        <p style="margin-bottom:16px;">
-          <strong>${esc(volunteerName)}</strong> s'est désisté(e) pour le service suivant :
-        </p>
-
-        <div style="background:#fff7ed;border-radius:10px;padding:18px 20px;margin-bottom:20px;border-left:4px solid #f97316;">
-          <p style="margin:0;font-size:16px;font-weight:600;">${esc(planTitle)}</p>
-          <p style="margin:6px 0 0;color:#555;font-size:14px;text-transform:capitalize;">${date} à ${time}</p>
-          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${esc(teamName)}</p>` : ''}
-          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Poste : ${esc(positionName)}</p>` : ''}
-        </div>
-
-        <p style="margin-bottom:20px;color:#555;font-size:14px;">
-          Il faudra prévoir un remplaçant pour ce poste.
-        </p>
-
-        <a href="${siteUrl}/espace/admin/plans"
-           style="display:inline-block;background:#3D7D85;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
-          Gérer la planification →
-        </a>
-
-        <p style="margin-top:32px;font-size:12px;color:#999;">
-          ${FOOTER}
-        </p>
-      </div>
-    `,
+    subject: `Désistement : ${volunteerName} — ${planTitle}${churchSuffix(churchName)}`,
+    html: renderEmail({
+      preheader: `${volunteerName} ne pourra pas participer à ${planTitle}.`,
+      heading: 'Un désistement à gérer',
+      churchName,
+      body:
+        emailParagraph(`<strong>${esc(volunteerName)}</strong> s'est désisté(e) pour le service suivant :`) +
+        serviceCard({ planTitle, serviceDate, positionName, teamName, timeZone }, 'Poste', 'warning') +
+        emailParagraph('Il faudra prévoir un remplaçant pour ce poste.') +
+        emailButton({ label: 'Ouvrir la planification', url: appLink('/espace/admin/plans') }),
+      reason: `Vous recevez ce message car vous êtes responsable${churchName ? ` dans ${churchName}` : ''} sur ${siteConfig.name}.`,
+    }),
   })
-  if (errCancel) throw new Error(`Resend sendCancellationEmail: ${errCancel.message}`)
 }
 
 export async function sendReminderEmail({
@@ -217,6 +211,7 @@ export async function sendReminderEmail({
   isPending = false,
   isExternal = false,
   timeZone,
+  churchName,
 }: {
   to: string
   firstName: string
@@ -230,75 +225,38 @@ export async function sendReminderEmail({
   isExternal?: boolean
   /** Fuseau de l'église (churches.timezone) */
   timeZone: string
+  churchName?: string | null
 }) {
-  const { date, time } = serviceDateTime(serviceDate, timeZone)
-  const siteUrl = getSiteUrl()
-  const resend = getResend()
-
-  const responseUrl = isExternal
-    ? externalResponseUrl(assignmentId)
-    : `${siteUrl}/espace/dashboard`
-
+  const responseUrl = isExternal ? externalResponseUrl(assignmentId) : appLink('/espace/dashboard')
   const label = daysLeft === 1 ? 'demain' : `dans ${daysLeft} jours`
-
-  // Pour les pending : style orange urgent + message d'action
-  // Pour les confirmed : style teal informatif
-  const cardStyle = isPending
-    ? 'background:#fff7ed;border-left:4px solid #f97316;'
-    : daysLeft <= 2
-      ? 'background:#fff7ed;border-left:4px solid #f97316;'
-      : 'background:#f0faf9;border-left:4px solid #0d9488;'
+  const urgent = isPending || daysLeft <= 2
 
   const intro = isPending
-    ? `Tu es planifié(e) <strong>${label}</strong> pour le service suivant, mais tu n'as pas encore confirmé ta participation.`
-    : `Rappel : tu es programmé(e) <strong>${label}</strong> pour le service suivant.`
+    ? `Vous êtes prévu(e) <strong>${label}</strong> pour le service suivant, mais vous n'avez pas encore confirmé votre participation.`
+    : `Un petit rappel : vous êtes prévu(e) <strong>${label}</strong> pour le service suivant.`
 
-  const subjectPrefix = isPending ? `⚠ Confirmation attendue (${label})` : `Rappel (${label})`
+  const subjectPrefix = isPending ? `Confirmation attendue (${label})` : `Rappel (${label})`
 
-  const ctaHtml = isPending && !isExternal ? `
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;">
-      <a href="${responseUrl}"
-         style="display:inline-block;background:#3D7D85;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
-        Confirmer ma présence →
-      </a>
-    </div>
-    <p style="font-size:13px;color:#555;margin-bottom:24px;">
-      Si tu ne peux pas venir, merci de le signaler depuis ton
-      <a href="${responseUrl}" style="color:#3D7D85;">espace bénévole</a> pour que le coordinateur puisse trouver un remplaçant.
-    </p>
-  ` : `
-    <a href="${responseUrl}"
-       style="display:inline-block;background:#3D7D85;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;margin-bottom:24px;">
-      ${isExternal ? 'Voir les détails →' : 'Mon espace bénévole →'}
-    </a>
-  `
+  const cta = isPending && !isExternal
+    ? emailButton({ label: 'Confirmer ma présence', url: responseUrl }) +
+      emailParagraph(`<span style="font-size:14px;">Si vous ne pouvez pas venir, merci de le signaler depuis <a href="${responseUrl}" style="color:#3d4f48;">votre espace</a> pour que l'équipe puisse trouver un remplaçant.</span>`)
+    : emailButton({ label: isExternal ? 'Voir les détails' : 'Ouvrir mon espace', url: responseUrl })
 
-  const { error } = await resend.emails.send({
-    from: emailFrom(),
+  await deliver('sendReminderEmail', {
     to,
-    subject: `${subjectPrefix} · ${buildSubject(planTitle, serviceDate, positionName, timeZone)}`,
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${esc(firstName)},</p>
-        <p style="margin-bottom:16px;">${intro}</p>
-
-        <div style="${cardStyle}border-radius:10px;padding:18px 20px;margin-bottom:20px;">
-          <p style="margin:0;font-size:16px;font-weight:600;">${esc(planTitle)}</p>
-          <p style="margin:6px 0 0;color:#555;font-size:14px;text-transform:capitalize;">${date} à ${time}</p>
-          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${esc(teamName)}</p>` : ''}
-          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Poste : ${esc(positionName)}</p>` : ''}
-        </div>
-
-        ${ctaHtml}
-
-        <p style="margin-top:32px;font-size:12px;color:#999;">
-          ${FOOTER}<br>
-          Si tu n'es pas concerné(e) par ce message, ignore-le.
-        </p>
-      </div>
-    `,
+    subject: `${subjectPrefix} · ${buildSubject(planTitle, serviceDate, positionName, timeZone)}${churchSuffix(churchName)}`,
+    html: renderEmail({
+      preheader: `${planTitle} — ${shortDate(serviceDate, timeZone)}`,
+      heading: isPending ? 'Votre présence est attendue' : 'À bientôt !',
+      churchName,
+      body:
+        emailParagraph(`Bonjour ${esc(firstName)},`) +
+        emailParagraph(intro) +
+        serviceCard({ planTitle, serviceDate, positionName, teamName, timeZone }, 'Poste', urgent ? 'warning' : 'info') +
+        cta,
+      reason: `Vous recevez ce rappel car vous êtes inscrit(e) à ce service${churchName ? ` de ${churchName}` : ''}. ${IGNORE_HINT}`,
+    }),
   })
-  if (error) throw new Error(`Resend sendReminderEmail: ${error.message}`)
 }
 
 export async function sendExternalGuestInvitationEmail({
@@ -310,6 +268,7 @@ export async function sendExternalGuestInvitationEmail({
   teamName,
   assignmentId,
   timeZone,
+  churchName,
 }: {
   to: string
   guestName: string
@@ -320,45 +279,25 @@ export async function sendExternalGuestInvitationEmail({
   assignmentId: string
   /** Fuseau de l'église (churches.timezone) */
   timeZone: string
+  churchName?: string | null
 }) {
-  const { date, time } = serviceDateTime(serviceDate, timeZone)
-  const resend = getResend()
-
-  const { error } = await resend.emails.send({
-    from: emailFrom(),
+  const church = churchName?.trim()
+  await deliver('sendExternalGuestInvitationEmail', {
     to,
-    subject: buildSubject(planTitle, serviceDate, positionName, timeZone),
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${esc(guestName)},</p>
-        <p style="margin-bottom:16px;">
-          Vous êtes invité(e) à participer au service suivant :
-        </p>
-
-        <div style="background:#f0faf9;border-radius:10px;padding:18px 20px;margin-bottom:20px;border-left:4px solid #0d9488;">
-          <p style="margin:0;font-size:16px;font-weight:600;">${esc(planTitle)}</p>
-          <p style="margin:6px 0 0;color:#555;font-size:14px;text-transform:capitalize;">${date} à ${time}</p>
-          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${esc(teamName)}</p>` : ''}
-          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Rôle : ${esc(positionName)}</p>` : ''}
-        </div>
-
-        <p style="margin-bottom:20px;">
-          Merci de nous indiquer si vous pouvez participer :
-        </p>
-
-        <a href="${externalResponseUrl(assignmentId)}"
-           style="display:inline-block;background:#3D7D85;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
-          Répondre à l'invitation →
-        </a>
-
-        <p style="margin-top:32px;font-size:12px;color:#999;">
-          ${FOOTER}<br>
-          Si vous n'êtes pas concerné(e) par ce message, ignorez-le.
-        </p>
-      </div>
-    `,
+    subject: `${buildSubject(planTitle, serviceDate, positionName, timeZone)}${churchSuffix(church)}`,
+    html: renderEmail({
+      preheader: `${church ?? 'Une église'} vous invite à participer à ${planTitle}.`,
+      heading: 'Vous êtes invité(e)',
+      churchName: church,
+      body:
+        emailParagraph(`Bonjour ${esc(guestName)},`) +
+        emailParagraph(`${church ? `<strong>${esc(church)}</strong> vous invite` : 'Vous êtes invité(e)'} à participer au service suivant :`) +
+        serviceCard({ planTitle, serviceDate, positionName, teamName, timeZone }, 'Rôle') +
+        emailParagraph('Merci de nous indiquer si vous pouvez participer :') +
+        emailButton({ label: "Répondre à l'invitation", url: externalResponseUrl(assignmentId) }),
+      reason: `Vous recevez ce message car ${church ? `${church} a` : 'une église a'} saisi votre adresse pour vous inviter. ${IGNORE_HINT}`,
+    }),
   })
-  if (error) throw new Error(`Resend sendExternalGuestInvitationEmail: ${error.message}`)
 }
 
 export async function sendPlanAssignmentEmail({
@@ -370,6 +309,7 @@ export async function sendPlanAssignmentEmail({
   teamName,
   assignmentId,
   timeZone,
+  churchName,
 }: {
   to: string
   firstName: string
@@ -380,53 +320,24 @@ export async function sendPlanAssignmentEmail({
   assignmentId: string
   /** Fuseau de l'église (churches.timezone) */
   timeZone: string
+  churchName?: string | null
 }) {
-  const { date, time } = serviceDateTime(serviceDate, timeZone)
-  const siteUrl = getSiteUrl()
-  const resend = getResend()
-
-  const { error: errPlan } = await resend.emails.send({
-    from: emailFrom(),
+  await deliver('sendPlanAssignmentEmail', {
     to,
-    subject: buildSubject(planTitle, serviceDate, positionName, timeZone),
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1a2e2e;">
-        <p style="margin-bottom:8px;">Bonjour ${esc(firstName)},</p>
-        <p style="margin-bottom:16px;">Tu as été planifié(e) pour le service suivant :</p>
-
-        <div style="background:#f0faf9;border-radius:10px;padding:18px 20px;margin-bottom:20px;border-left:4px solid #0d9488;">
-          <p style="margin:0;font-size:16px;font-weight:600;">${esc(planTitle)}</p>
-          <p style="margin:6px 0 0;color:#555;font-size:14px;text-transform:capitalize;">${date} à ${time}</p>
-          ${teamName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Équipe : ${esc(teamName)}</p>` : ''}
-          ${positionName ? `<p style="margin:6px 0 0;color:#0d9488;font-size:14px;">Poste : ${esc(positionName)}</p>` : ''}
-        </div>
-
-        <p style="margin-bottom:20px;">
-          Merci de confirmer ou décliner ta disponibilité :
-        </p>
-
-        <div style="display:flex;gap:12px;margin-bottom:24px;">
-          <a href="${memberResponseUrl(assignmentId, 'confirmed')}"
-             style="display:inline-block;background:#16a34a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
-            ✓ Je confirme
-          </a>
-          <a href="${memberResponseUrl(assignmentId, 'declined')}"
-             style="display:inline-block;background:#dc2626;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">
-            ✕ Je décline
-          </a>
-        </div>
-
-        <a href="${siteUrl}/espace/dashboard"
-           style="display:inline-block;color:#0d9488;font-size:13px;text-decoration:underline;">
-          Accéder à mon espace bénévole
-        </a>
-
-        <p style="margin-top:32px;font-size:12px;color:#999;">
-          ${FOOTER}<br>
-          Si tu n'es pas concerné(e) par ce message, ignore-le.
-        </p>
-      </div>
-    `,
+    subject: `${buildSubject(planTitle, serviceDate, positionName, timeZone)}${churchSuffix(churchName)}`,
+    html: renderEmail({
+      preheader: `Vous êtes prévu(e) pour ${planTitle}. Confirmez en un clic.`,
+      heading: 'Vous êtes prévu(e) pour un service',
+      churchName,
+      body:
+        emailParagraph(`Bonjour ${esc(firstName)},`) +
+        emailParagraph('Vous avez été planifié(e) pour le service suivant :') +
+        serviceCard({ planTitle, serviceDate, positionName, teamName, timeZone }, 'Poste') +
+        emailParagraph('Pouvez-vous nous confirmer votre disponibilité ?') +
+        emailButton({ label: 'Je confirme', url: memberResponseUrl(assignmentId, 'confirmed'), tone: 'positive' }) +
+        emailButton({ label: 'Je ne peux pas', url: memberResponseUrl(assignmentId, 'declined'), tone: 'negative' }) +
+        emailParagraph(`<span style="font-size:14px;"><a href="${appLink('/espace/dashboard')}" style="color:#3d4f48;">Ouvrir mon espace</a></span>`),
+      reason: `Vous recevez ce message car vous êtes membre de l'équipe${churchName ? ` de ${churchName}` : ''}. ${IGNORE_HINT}`,
+    }),
   })
-  if (errPlan) throw new Error(`Resend sendPlanAssignmentEmail: ${errPlan.message}`)
 }

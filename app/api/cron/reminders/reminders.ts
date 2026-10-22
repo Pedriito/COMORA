@@ -79,7 +79,7 @@ type WindowResult = { churchId: string; planId: string; days: number; sent: numb
 /** Envoie les rappels d'une église : ses plans, ses affectations, son fuseau. */
 export async function sendChurchReminders(
   admin: AdminClient,
-  church: { id: string; timezone: string | null },
+  church: { id: string; name?: string | null; timezone: string | null },
   now: Date,
 ): Promise<WindowResult[]> {
   const churchId = church.id
@@ -148,6 +148,7 @@ export async function sendChurchReminders(
               isPending,
               isExternal: true,
               timeZone,
+              churchName: church.name,
             })
           } else {
             const r = recipients.get(a.member_id)
@@ -166,6 +167,7 @@ export async function sendChurchReminders(
                 isPending,
                 isExternal: false,
                 timeZone,
+                churchName: church.name,
               })
             }
 

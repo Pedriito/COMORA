@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   const { data: churches, error } = await admin
     .from('churches')
-    .select('id, timezone')
+    .select('id, name, timezone')
     .not('billing_status', 'in', '(canceled,pending_deletion)')
 
   if (error) {

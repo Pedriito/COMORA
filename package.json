@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "icons": "node scripts/generate-icons.mjs",
+    "emails:build": "tsx scripts/build-auth-emails.ts",
     "test:rls": "vitest run --project rls",
     "db:types": "supabase gen types typescript --local --schema public > lib/supabase/database.types.ts"
   },

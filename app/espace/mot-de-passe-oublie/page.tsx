@@ -41,10 +41,11 @@ async function requestReset(formData: FormData) {
 
   const { data: profile } = await admin.from('profiles').select('first_name').eq('id', userId).maybeSingle()
   const firstName = profile?.first_name ?? ''
+  const { data: church } = await admin.from('churches').select('name').eq('id', membership.church_id).maybeSingle()
 
   try {
     if (premier) {
-      await sendInviteEmail({ to: email, firstName, inviteLink: activationUrl(token) })
+      await sendInviteEmail({ to: email, firstName, inviteLink: activationUrl(token), churchName: church?.name })
     } else {
       await sendPasswordResetEmail({ to: email, firstName, resetLink: activationUrl(token) })
     }

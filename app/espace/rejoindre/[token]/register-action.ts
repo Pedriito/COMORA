@@ -80,8 +80,9 @@ export async function registerViaToken(formData: FormData): Promise<RegisterResu
   const activation = await createActivation(admin, churchId, userId)
   if (!activation) return { ok: false, error: GENERIC_ERROR }
 
+  const { data: church } = await admin.from('churches').select('name').eq('id', churchId).maybeSingle()
   try {
-    await sendInviteEmail({ to: email, firstName, inviteLink: activationUrl(activation) })
+    await sendInviteEmail({ to: email, firstName, inviteLink: activationUrl(activation), churchName: church?.name })
   } catch {
     console.error('[register] envoi de l’e-mail d’activation impossible')
     return { ok: false, error: 'Ton inscription est enregistrée, mais l’e-mail n’a pas pu être envoyé. Utilise « Première connexion » sur la page de connexion.' }

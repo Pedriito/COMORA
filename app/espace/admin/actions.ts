@@ -42,11 +42,11 @@ async function findMember(ctx: ChurchContext, memberId: string) {
 }
 
 /** Crée le lien d'activation et envoie l'e-mail d'invitation. */
-async function sendActivation(churchId: string, userId: string, email: string, firstName: string): Promise<boolean> {
+async function sendActivation(churchId: string, churchName: string, userId: string, email: string, firstName: string): Promise<boolean> {
   const token = await createActivation(createAdminClient(), churchId, userId)
   if (!token) return false
   try {
-    await sendInviteEmail({ to: email, firstName, inviteLink: activationUrl(token) })
+    await sendInviteEmail({ to: email, firstName, inviteLink: activationUrl(token), churchName })
     return true
   } catch {
     console.error('[invitation] envoi de l’e-mail impossible')
@@ -144,7 +144,7 @@ export async function inviteBenevole(formData: FormData) {
     }
   }
 
-  const sent = await sendActivation(churchId, userId, email, firstName)
+  const sent = await sendActivation(churchId, ctx.church.churchName, userId, email, firstName)
   redirect(sent ? '/espace/admin?success=invited' : '/espace/admin?error=email_failed')
 }
 
@@ -164,7 +164,7 @@ async function resend(ctx: ChurchContext, memberId: string): Promise<string | nu
   const email = await accountEmail(member.user_id)
   if (!email) return 'Adresse e-mail introuvable.'
 
-  const sent = await sendActivation(ctx.church.churchId, member.user_id, email, member.first_name)
+  const sent = await sendActivation(ctx.church.churchId, ctx.church.churchName, member.user_id, email, member.first_name)
   return sent ? null : 'L’e-mail n’a pas pu être envoyé. Réessaie plus tard.'
 }
 
