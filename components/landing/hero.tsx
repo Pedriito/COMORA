@@ -2,6 +2,7 @@ import Image from "next/image";
 import heroImage from "@/assets/images/hero-louange.jpg";
 import Link from "next/link";
 import { buttonClasses } from "@/components/ui/button";
+import { appUrl } from "@/lib/site";
 import { FloatCard, Parallax } from "./motion";
 
 export function Hero() {
@@ -51,8 +52,11 @@ export function Hero() {
             bénévoles, communication, chants et événements. Sur le web, iPhone et Android.
           </p>
           <div className="flex flex-wrap items-center gap-3.5">
-            <Link href="/demande-acces" className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}>
-              Demander mon accès
+            <Link
+              href={appUrl("/espace/inscription")}
+              className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}
+            >
+              Créer l’espace de mon église
             </Link>
             <a
               href="#fonctionnalites"
@@ -62,8 +66,8 @@ export function Hero() {
             </a>
           </div>
           <ul className="flex flex-wrap gap-x-[22px] gap-y-2 text-[14px] text-mist-dark">
-            <li>Ouverture à toutes les églises le 1er décembre</li>
-            <li>20 places fondatrices</li>
+            <li>30 jours d’essai gratuit, sans carte bancaire</li>
+            <li>Offre fondateurs jusqu’au 20 janvier 2027</li>
             <li>Support en français</li>
           </ul>
         </div>

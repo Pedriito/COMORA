@@ -7,12 +7,12 @@ const QUESTIONS = [
   {
     question: "Qu’est-ce qu’une église fondatrice ?",
     answer:
-      "Avant l’ouverture à toutes les églises le 1er décembre, nous accompagnons 20 églises de près. Elles utilisent Comora gratuitement jusqu’au lancement, nous l’installons avec elles en une demi-heure, et elles gardent à vie un tarif réduit : 12 € HT par mois pour Essentiel, 29 € HT pour Communauté. En échange, nous leur demandons simplement leurs retours.",
+      "Les églises qui créent leur espace avant le 20 janvier 2027 gardent à vie un tarif réduit, tant que leur abonnement n’est pas résilié : 12 € par mois pour Essentiel, 29 € pour Communauté et 69 € pour Signature. En échange, nous leur demandons simplement leurs retours.",
   },
   {
     question: "Puis-je importer les données de mon église ?",
     answer:
-      "Oui. Importez vos membres et vos chants depuis un fichier Excel ou CSV en quelques minutes. La migration est assistée pour toutes les offres, et entièrement prise en charge avec l’offre Réseau.",
+      "Oui. Importez vos membres et vos chants depuis un fichier Excel ou CSV en quelques minutes. La migration est assistée pour toutes les offres, et accompagnée avec l’offre Signature.",
   },
   {
     question: "Où sont hébergées nos données ?",
@@ -25,9 +25,9 @@ const QUESTIONS = [
       "Non. L’application, sur téléphone comme sur ordinateur, est gratuite pour tous vos membres. Seule l’église souscrit un abonnement, selon sa taille.",
   },
   {
-    question: "Les dons en ligne sont-ils disponibles ?",
+    question: "Combien de temps puis-je essayer Comora ?",
     answer:
-      "Ils arrivent bientôt. Vos membres pourront donner par carte ou prélèvement SEPA depuis l’application, les fonds seront versés directement sur le compte de l’église et les reçus fiscaux générés automatiquement.",
+      "30 jours, gratuitement et sans carte bancaire, avec toutes les fonctions de l’offre Communauté. À la fin de l’essai, si vous ne choisissez pas d’offre, votre espace passe en lecture seule : rien n’est supprimé et vous pouvez vous abonner quand vous le souhaitez.",
   },
   {
     question: "Puis-je changer d’offre en cours de route ?",

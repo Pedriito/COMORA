@@ -4,8 +4,8 @@ import { supabasePublicKey, supabaseUrl } from "./env";
 
 /**
  * Client Supabase côté serveur, sans session utilisateur (rôle « anon »).
- * Les politiques RLS limitent ce rôle à l'ajout d'une demande dans
- * public.waitlist : il ne peut pas lire la liste.
+ * Ce rôle n'a aucun droit sur les tables : il ne sert qu'à appeler les fonctions
+ * publiques, comme public_church_site() pour le site d'une église.
  * Renvoie null tant que les variables d'environnement ne sont pas définies.
  */
 export function createAnonClient() {

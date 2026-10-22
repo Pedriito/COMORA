@@ -20,3 +20,15 @@ export const siteConfig = {
 export function siteUrl(): string {
   return siteConfig.url;
 }
+
+/**
+ * Adresse de l'espace de gestion (app.comora.fr). En développement, chemins relatifs :
+ * la landing et l'espace tournent sur le même serveur local. Surchargeable par
+ * NEXT_PUBLIC_APP_URL (par exemple pour une prévisualisation).
+ */
+export function appUrl(path = ""): string {
+  const explicit = process.env.NEXT_PUBLIC_APP_URL;
+  const root = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "comora.fr";
+  const base = explicit ?? (process.env.NODE_ENV === "production" ? `https://app.${root}` : "");
+  return `${base.replace(/\/$/, "")}${path}`;
+}

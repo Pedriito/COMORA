@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { Logo } from '@/components/brand/logo'
 import { logout } from '../login/actions'
 
@@ -14,6 +15,12 @@ export default function SansEglisePage() {
           <p className="font-sans text-sm text-dark/60 leading-relaxed">
             Demandez à un responsable de votre église de vous inviter à nouveau, ou créez l’espace de votre église.
           </p>
+          <Link
+            href="/espace/creer"
+            className="inline-block px-5 py-2.5 rounded-lg bg-coral text-white font-sans text-sm font-medium hover:bg-coral/90"
+          >
+            Créer l’espace de mon église
+          </Link>
           <form action={logout}>
             <button type="submit" className="px-5 py-2.5 rounded-lg border border-teal/30 font-sans text-sm text-dark/70 hover:bg-teal-50">
               Se déconnecter

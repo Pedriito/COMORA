@@ -1,12 +1,15 @@
 import { createServerClient } from '@supabase/ssr'
 import { supabasePublicKey, supabaseUrl } from '@/lib/supabase/env'
 import { cookies } from 'next/headers'
+import { safeNextPath } from '@/lib/http/safe-redirect'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
   const type = searchParams.get('type')
+  // Où continuer après la confirmation (ex. création de l'espace) : chemin de l'espace uniquement
+  const next = safeNextPath(searchParams.get('next'))
 
   if (code) {
     const cookieStore = await cookies()
@@ -31,6 +34,7 @@ export async function GET(request: NextRequest) {
       if (type === 'recovery' || type === 'invite') {
         return NextResponse.redirect(`${origin}/espace/set-password`)
       }
+      if (next) return NextResponse.redirect(`${origin}${next}`)
       // Compte sans église active : page d'attente
       const userId = sessionData.session?.user?.id
       const { data: membership } = userId

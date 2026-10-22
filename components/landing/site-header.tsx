@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/brand/logo";
 import { buttonClasses } from "@/components/ui/button";
+import { appUrl } from "@/lib/site";
 import { cx } from "@/components/ui/cx";
 
 const LINKS = [
@@ -70,21 +71,20 @@ export function SiteHeader() {
 
         <div className="ml-auto flex items-center gap-[18px]">
           <Link
-            href="/connexion"
+            href={appUrl("/espace/login")}
             className="hidden text-[15px] font-medium transition-opacity hover:opacity-70 lg:block"
           >
             Se connecter
           </Link>
           <Link
-            href="/demande-acces"
+            href={appUrl("/espace/inscription")}
             className={buttonClasses({
               variant: "accent",
               size: "md",
               shape: "pill",
               className: "max-sm:hidden",
             })}
-          >
-            Demander mon accès
+          >            Créer mon espace
           </Link>
           <button
             type="button"
@@ -121,16 +121,15 @@ export function SiteHeader() {
               {link.label}
             </a>
           ))}
-          <Link href="/connexion" onClick={closeMenu} className="py-3.5">
+          <Link href={appUrl("/espace/login")} onClick={closeMenu} className="py-3.5">
             Se connecter
           </Link>
         </nav>
         <Link
-          href="/demande-acces"
+          href={appUrl("/espace/inscription")}
           onClick={closeMenu}
           className={buttonClasses({ variant: "accent", size: "lg", shape: "pill", fullWidth: true, className: "mt-3" })}
-        >
-          Demander mon accès
+        >          Créer l’espace de mon église
         </Link>
       </div>
     </header>

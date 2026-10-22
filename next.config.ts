@@ -25,8 +25,6 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
-      { source: "/admin", headers: privateHeaders },
-      { source: "/inscription/:token", headers: privateHeaders },
       { source: "/espace/:path*", headers: privateHeaders },
       { source: "/partage/:token", headers: privateHeaders },
     ];

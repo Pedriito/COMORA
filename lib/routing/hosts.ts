@@ -36,6 +36,8 @@ const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** Chemins servis tels quels quel que soit le domaine (fichiers, API, PWA). */
 const SHARED_PREFIXES = ["/_next", "/api", "/icons", "/email", "/videos"];
 const SHARED_FILES = new Set([
+  // Pages légales : accessibles depuis tous les domaines (espace, sites d'église, e-mails)
+  "/cgv", "/confidentialite", "/mentions-legales",
   "/sw.js", "/offline.html", "/manifest.webmanifest", "/favicon.ico", "/icon.svg",
   "/apple-icon.png", "/robots.txt", "/sitemap.xml", "/opengraph-image.jpg",
 ]);

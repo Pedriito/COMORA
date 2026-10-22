@@ -72,6 +72,14 @@ describe("routeRequest", () => {
     });
   });
 
+  it("sert les pages légales sur tous les domaines, sans les réécrire", () => {
+    for (const host of ["https://comora.fr", "https://app.comora.fr", "https://la-source.comora.fr"]) {
+      for (const page of ["/cgv", "/confidentialite", "/mentions-legales"]) {
+        expect(route(`${host}${page}`), `${host}${page}`).toEqual({ action: "next" });
+      }
+    }
+  });
+
   it("laisse passer les fichiers partagés et l'API sur tous les domaines", () => {
     for (const href of ["https://la-source.comora.fr/_next/static/x.js", "https://app.comora.fr/api/cron/reminders", "https://la-source.comora.fr/icons/icon-192.png", "https://app.comora.fr/sw.js"]) {
       expect(route(href), href).toEqual({ action: "next" });

@@ -51,8 +51,7 @@ describe("toutes les tables", () => {
     const covered = new Set([...CHURCH_TABLES.map((s) => s.table), ...OTHER_TABLES]);
     expect(tables.map((t) => t.table_name).filter((name) => !covered.has(name))).toEqual([]);
 
-    const espace = tables.filter((t) => !["waitlist", "invitations", "early_access_accounts"].includes(t.table_name));
-    expect(espace.filter((t) => !t.rls_forced).map((t) => t.table_name)).toEqual([]);
+    expect(tables.filter((t) => !t.rls_forced).map((t) => t.table_name)).toEqual([]);
   });
 });
 

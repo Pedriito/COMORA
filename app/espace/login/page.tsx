@@ -90,8 +90,14 @@ export default function LoginPage({
           </div>
         </div>
 
-        <p className="text-center mt-6 text-xs text-dark/40 font-sans">
-          Accès réservé aux bénévoles invités par l'équipe.
+        <p className="text-center mt-6 text-sm text-dark/60 font-sans">
+          Votre église n’a pas encore d’espace Comora ?{' '}
+          <Link href="/espace/inscription" className="text-teal-dark font-medium hover:underline">
+            Créer l’espace de mon église
+          </Link>
+        </p>
+        <p className="text-center mt-2 text-xs text-dark/40 font-sans">
+          Bénévole&nbsp;? Utilisez le lien d’invitation que votre église vous a envoyé.
         </p>
       </div>
     </div>
@@ -101,7 +107,7 @@ export default function LoginPage({
 const loginErrors: Record<string, string> = {
   credentials: 'Email ou mot de passe incorrect. Vérifie tes identifiants.',
   expired: 'Ce lien a expiré ou a déjà été utilisé. Demande un nouveau lien avec « Première connexion » ou « Mot de passe oublié ».',
-  auth: 'La connexion a échoué. Réessaie.',
+  auth: 'La connexion a échoué. Si vous venez de confirmer votre e-mail, connectez-vous simplement avec votre mot de passe.',
 }
 
 async function ErrorMessage({

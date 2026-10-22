@@ -1,19 +1,20 @@
 import Link from "next/link";
 import { buttonClasses } from "@/components/ui/button";
+import { appUrl } from "@/lib/site";
 import { Eyebrow } from "./eyebrow";
 
 const BENEFITS = [
   {
-    title: "Gratuit jusqu’au lancement",
-    text: "Toute l’équipe peut utiliser Comora sans frais jusqu’au 1er décembre.",
+    title: "30 jours d’essai gratuit",
+    text: "Toutes les fonctions de l’offre Communauté, sans carte bancaire. Rien n’est supprimé à la fin de l’essai.",
   },
   {
-    title: "Installé avec vous",
-    text: "Une demi-heure en visio pour créer vos équipes, vos services et inviter vos bénévoles.",
+    title: "Prise en main guidée",
+    text: "Une liste de premiers pas vous accompagne : importer vos membres, créer une équipe, planifier votre prochain culte.",
   },
   {
     title: "Votre tarif bloqué à vie",
-    text: "12 € HT par mois pour Essentiel et 29 € HT pour Communauté, au lieu de 19 € et 49 €.",
+    text: "12 € par mois pour Essentiel, 29 € pour Communauté et 69 € pour Signature, au lieu de 19 €, 49 € et 119 €, tant que l’abonnement n’est pas résilié.",
   },
 ];
 
@@ -26,16 +27,16 @@ export function Founders() {
     >
       <div className="mx-auto grid max-w-[1240px] grid-cols-[repeat(auto-fit,minmax(min(380px,100%),1fr))] items-start gap-16">
         <div data-reveal className="flex flex-col gap-6">
-          <Eyebrow onDark>Accès anticipé</Eyebrow>
+          <Eyebrow onDark>Offre fondateurs</Eyebrow>
           <h2
             id="fondatrices-title"
             className="font-display text-[clamp(42px,5vw,72px)] leading-[0.98] font-semibold"
           >
-            Devenez l’une des 20 églises fondatrices.
+            Rejoignez les églises fondatrices.
           </h2>
           <p className="max-w-[520px] text-[18px] leading-[1.6] text-pretty text-mist">
-            Avant l’ouverture à toutes les églises le 1er décembre, nous accompagnons 20 églises de près. En
-            échange, nous vous demandons simplement de nous dire ce qui marche et ce qui manque.
+            Les églises qui créent leur espace avant le 20 janvier 2027 gardent un tarif réduit à vie. En échange,
+            nous vous demandons simplement de nous dire ce qui marche et ce qui manque.
           </p>
           <BenefitList />
         </div>
@@ -44,16 +45,16 @@ export function Founders() {
           data-reveal
           className="flex flex-col gap-[18px] rounded-[28px] border border-moss-light bg-ink-card p-6 sm:p-9"
         >
-          <h3 className="font-display text-[30px] leading-[1.1] font-semibold">Demander mon accès</h3>
+          <h3 className="font-display text-[30px] leading-[1.1] font-semibold">Créer l’espace de mon église</h3>
           <p className="text-base leading-[1.6] text-mist">
-            Quelques questions sur votre église (taille, équipes, organisation actuelle) pour réunir des
-            églises fondatrices dont le quotidien ressemble au nôtre. Comptez trois minutes.
+            Votre compte, puis quelques informations sur votre église (nom, ville, taille) : comptez trois minutes.
+            Aucune carte bancaire n’est demandée.
           </p>
           <Link
-            href="/demande-acces"
+            href={appUrl("/espace/inscription")}
             className={buttonClasses({ variant: "accent", size: "lg", shape: "pill", fullWidth: true, className: "mt-2" })}
           >
-            Demander mon accès
+            Créer l’espace de mon église
           </Link>
         </div>
       </div>
@@ -61,7 +62,7 @@ export function Founders() {
   );
 }
 
-/** Les trois avantages des églises fondatrices (section d'accueil et page de demande). */
+/** Les trois avantages des églises fondatrices. */
 export function BenefitList() {
   return (
     <ul className="mt-2 flex flex-col gap-5">

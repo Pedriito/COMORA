@@ -1,7 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
 
-/** Valeurs de test : volontairement reconnaissables pour la recherche de fuites. */
-export const E2E_ADMIN_PASSWORD = "e2e-Mot2Passe-ne-doit-jamais-fuiter";
 const PORT = 3100;
 
 export default defineConfig({
@@ -20,11 +18,10 @@ export default defineConfig({
     timeout: 240_000,
     reuseExistingServer: false,
     env: {
-      ADMIN_PASSWORD: E2E_ADMIN_PASSWORD,
-      ADMIN_SESSION_SECRET: "e2e-secret-de-session-suffisamment-long-0123456789",
-      // Aucun Supabase ni Resend : on teste l'interface et la sécurité, pas la base.
-      NEXT_PUBLIC_SUPABASE_URL: "",
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "",
+      // Aucune base réelle : adresse et clé fictives suffisent pour afficher les pages sans session.
+      // (Les parcours avec base se testent avec tests/rls, sur Supabase local.)
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_fictive_pour_les_tests",
       SUPABASE_SECRET_KEY: "",
     },
   },

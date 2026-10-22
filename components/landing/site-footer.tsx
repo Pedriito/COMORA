@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 
 export function SiteFooter() {
@@ -7,17 +8,24 @@ export function SiteFooter() {
         <Logo size={28} word="serif" tagline color="#efece3" />
         <div className="flex flex-wrap gap-x-6 gap-y-3 text-[14px]">
           <nav aria-label="Pied de page" className="flex flex-wrap gap-x-6 gap-y-3">
-            <a href="#fonctionnalites" className="transition-colors hover:text-sand">
+            <Link href="/#fonctionnalites" className="transition-colors hover:text-sand">
               Fonctionnalités
-            </a>
-            <a href="#tarifs" className="transition-colors hover:text-sand">
+            </Link>
+            <Link href="/#tarifs" className="transition-colors hover:text-sand">
               Tarifs
-            </a>
-            <a href="#faq" className="transition-colors hover:text-sand">
+            </Link>
+            <Link href="/#faq" className="transition-colors hover:text-sand">
               Questions
-            </a>
+            </Link>
           </nav>
-          <span>Mentions légales</span>
+          <nav aria-label="Informations légales" className="flex flex-wrap gap-x-6 gap-y-3">
+            <Link href="/cgv" className="transition-colors hover:text-sand">
+              Conditions générales
+            </Link>
+            <Link href="/confidentialite" className="transition-colors hover:text-sand">
+              Confidentialité
+            </Link>
+          </nav>
           <span>© 2026 comora.fr</span>
         </div>
       </div>

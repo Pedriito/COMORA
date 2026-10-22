@@ -3,6 +3,7 @@ import louangeImage from "@/assets/images/louange-lumieres.jpg";
 import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 import { buttonClasses } from "@/components/ui/button";
+import { appUrl } from "@/lib/site";
 import { Parallax } from "./motion";
 
 export function FinalCta() {
@@ -20,10 +21,13 @@ export function FinalCta() {
           Votre église mérite mieux qu’un groupe WhatsApp.
         </h2>
         <p className="text-[18px] text-mist">
-          20 places fondatrices avant l’ouverture à toutes les églises, le 1er décembre.
+          Essayez Comora 30 jours gratuitement, sans carte bancaire. Votre espace est prêt en quelques minutes.
         </p>
-        <Link href="/demande-acces" className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}>
-          Demander mon accès
+        <Link
+          href={appUrl("/espace/inscription")}
+          className={buttonClasses({ variant: "accent", size: "lg", shape: "pill" })}
+        >
+          Créer l’espace de mon église
         </Link>
       </div>
     </section>

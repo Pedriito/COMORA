@@ -4,7 +4,7 @@ import { routeRequest } from '@/lib/routing/hosts'
 import { supabasePublicKey, supabaseUrl } from '@/lib/supabase/env'
 
 // Pages de l'espace accessibles sans être connecté
-const PUBLIC_EXACT = ['/espace/login', '/espace/set-password', '/espace/mot-de-passe-oublie']
+const PUBLIC_EXACT = ['/espace/login', '/espace/inscription', '/espace/set-password', '/espace/mot-de-passe-oublie']
 const PUBLIC_PREFIXES = ['/espace/auth', '/espace/activer', '/espace/repondre', '/espace/rejoindre']
 
 export function isPublicEspacePath(pathname: string) {

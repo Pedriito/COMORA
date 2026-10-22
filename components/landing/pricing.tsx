@@ -4,15 +4,14 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { buttonClasses, type ButtonVariant } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
+import { annualTotal, displayedMonthly, formatEuros } from "@/lib/pricing";
+import { appUrl } from "@/lib/site";
 import { Eyebrow } from "./eyebrow";
-
-/** Remise appliquée en facturation annuelle (−20 %). */
-const ANNUAL_RATE = 0.8;
 
 type Plan = {
   name: string;
   tagline: string;
-  /** Prix mensuel HT, en euros. */
+  /** Prix mensuel, en euros (TVA non applicable). */
   monthly: number;
   scope: string;
   features: string[];
@@ -33,7 +32,7 @@ const PLANS: Plan[] = [
       "Projection des chants, salle et streaming",
       "Application mobile (iPhone, Android)",
     ],
-    cta: { label: "Demander mon accès", variant: "outline", href: "/demande-acces" },
+    cta: { label: "Essayer gratuitement", variant: "outline", href: appUrl("/espace/inscription") },
   },
   {
     name: "Communauté",
@@ -44,25 +43,25 @@ const PLANS: Plan[] = [
       "Annonces et notifications push",
       "Événements et inscriptions en ligne",
       "Groupes de maison, suivi des nouveaux",
-      "Dons en ligne et reçus fiscaux (bientôt)",
+      "Site public de votre église sur votre-eglise.comora.fr",
       "Administrateurs illimités",
     ],
-    cta: { label: "Demander mon accès", variant: "accent", href: "/demande-acces" },
+    cta: { label: "Essayer gratuitement", variant: "accent", href: appUrl("/espace/inscription") },
     featured: true,
   },
   {
-    name: "Réseau",
-    tagline: "Multi-sites, unions et fédérations",
+    name: "Signature",
+    tagline: "Votre église, à vos couleurs",
     monthly: 119,
     scope: "Membres illimités · tout Communauté, plus :",
     features: [
+      "Votre domaine et vos couleurs sur le site de l’église",
       "Plusieurs sites et églises",
-      "Tableau de bord consolidé",
       "Rôles et permissions avancés",
       "Migration des données offerte",
       "Accompagnement et formation dédiés",
     ],
-    cta: { label: "Parler à l’équipe", variant: "dark", href: "/demande-acces?offre=reseau" },
+    cta: { label: "Essayer gratuitement", variant: "dark", href: appUrl("/espace/inscription") },
   },
 ];
 
@@ -76,12 +75,8 @@ const GUARANTEES = [
   { title: "Tarif solidaire", text: "Essentiel offert aux églises de moins de 30 membres." },
 ];
 
-const amount = new Intl.NumberFormat("fr-FR");
-
 export function Pricing() {
   const [annual, setAnnual] = useState(false);
-  const price = (monthly: number) => (annual ? Math.round(monthly * ANNUAL_RATE) : monthly);
-
   return (
     <section id="tarifs" aria-labelledby="tarifs-title" className="bg-sand px-5 py-24 sm:px-7 lg:py-[140px]">
       <div className="mx-auto flex max-w-[1240px] flex-col gap-12">
@@ -117,10 +112,10 @@ export function Pricing() {
             <div key={plan.name} data-reveal className="flex">
               <PlanCard
                 plan={plan}
-                price={price(plan.monthly)}
+                price={formatEuros(displayedMonthly(plan.monthly, annual))}
                 note={
                   annual
-                    ? `soit ${amount.format(price(plan.monthly) * 12)} € HT facturés par an, engagement 12 mois`
+                    ? `soit ${formatEuros(annualTotal(plan.monthly))} € facturés par an, engagement 12 mois`
                     : "Sans engagement, résiliable à tout moment"
                 }
               />
@@ -165,7 +160,7 @@ function ToggleButton({
   );
 }
 
-function PlanCard({ plan, price, note }: { plan: Plan; price: number; note: string }) {
+function PlanCard({ plan, price, note }: { plan: Plan; price: string; note: string }) {
   const featured = plan.featured ?? false;
   return (
     <article
@@ -187,7 +182,7 @@ function PlanCard({ plan, price, note }: { plan: Plan; price: number; note: stri
       </div>
       <p className="flex items-baseline gap-1.5">
         <span className="text-[56px] font-bold tracking-[-0.03em]">{price}&nbsp;€</span>
-        <span className={cx("text-[15px]", featured ? "text-mist-dark" : "text-muted")}>HT / mois</span>
+        <span className={cx("text-[15px]", featured ? "text-mist-dark" : "text-muted")}>par mois</span>
       </p>
       <p className={cx("min-h-5 text-[14px] font-semibold", featured ? "text-teal-pale" : "text-teal-dark")}>
         {note}

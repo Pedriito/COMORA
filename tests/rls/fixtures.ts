@@ -71,6 +71,7 @@ export const CHURCH_TABLES: TableSpec[] = [
   { table: "invite_tokens", key: "id", build: (c) => ({ church_id: c.id, token_hash: `hash-${Math.random()}` }), patch: { label: "Modifié" } },
   { table: "calendar_feeds", key: "id", build: (c) => ({ church_id: c.id, user_id: c.accounts.membre.userId, token_hash: `hash-${Math.random()}` }), patch: { revoked_at: "2027-01-01T00:00:00Z" } },
   { table: "plan_share_links", key: "id", build: (c) => ({ church_id: c.id, plan_id: c.rows.plans.id, token_hash: `hash-${Math.random()}`, expires_at: "2030-01-01T00:00:00Z" }), patch: { revoked_at: "2027-01-01T00:00:00Z" } },
+  { table: "legal_acceptances", key: "id", build: (c) => ({ church_id: c.id, document: "cgv", version: "test" }), patch: { version: "modifiée" } },
   { table: "account_activations", key: "id", build: (c) => ({ church_id: c.id, user_id: c.accounts.membre.userId, token_hash: `hash-${Math.random()}`, expires_at: "2030-01-01T00:00:00Z" }), patch: { used_at: "2027-01-01T00:00:00Z" } },
 ];
 
@@ -78,7 +79,7 @@ export const CHURCH_TABLES: TableSpec[] = [
  * Tables de `public` sans `church_id`, testées à part ; ou tables de la
  * landing, hors de l'espace des églises.
  */
-export const OTHER_TABLES = ["churches", "profiles", "platform_admins", "push_subscriptions", "waitlist", "invitations", "early_access_accounts"];
+export const OTHER_TABLES = ["churches", "profiles", "platform_admins", "push_subscriptions"];
 
 /** Crée une église complète : comptes de chaque rôle et une ligne par table. */
 export async function seedChurch(label: string): Promise<ChurchFixture> {

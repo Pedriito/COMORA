@@ -8,11 +8,13 @@ Ce dépôt contient, dans une seule application Next.js :
 
 | Partie | Adresse (aujourd'hui) | Rôle |
 | --- | --- | --- |
-| Landing | `/` | présentation de Comora, tarifs, demande d'accès |
+| Landing | `/` | présentation de Comora, tarifs, offre fondateurs |
 | Espace de gestion | `/espace/…` | plannings, équipes, chants, projection, pastorale, réglages (ancien `/benevoles`, redirigé) |
 | Site public d'église | `/sites/<slug>` | site vitrine généré à partir des réglages de l'église |
 | Partage de setlist | `/partage/<jeton>` | lecture seule, sans compte |
-| Administration Comora | `/admin` | demandes d'accès (sera remplacée à l'étape 9) |
+| Inscription et création d'un espace | `/espace/inscription`, `/espace/creer` | compte (e-mail vérifié), puis assistant de création de l'église |
+| Pages légales | `/cgv`, `/confidentialite` | textes provisoires |
+| Back-office Comora | — | étape 9 |
 
 L'espace de gestion vient de l'application construite pour une première église, rendue générique. Le passage en SaaS multi-églises suit le plan de [`docs/PLAN.md`](docs/PLAN.md) ; l'audit du code de départ est un document interne, gardé hors du dépôt. Les domaines définitifs (`app.comora.fr`, `<slug>.comora.fr`) arrivent à l'étape 2.
 
@@ -53,11 +55,12 @@ Toutes sont décrites dans [`.env.example`](.env.example). **Ce dépôt est publ
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | projet Supabase et clé publique (l'ancienne `NEXT_PUBLIC_SUPABASE_ANON_KEY` est acceptée) |
 | `SUPABASE_SECRET_KEY` | clé secrète, **serveur uniquement** (l'ancienne `SUPABASE_SERVICE_ROLE_KEY` est acceptée) |
 | `NEXT_PUBLIC_SITE_URL` | URL publique (par défaut `https://comora.fr`), utilisée dans les liens envoyés |
-| `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` | accès à `/admin` |
 | `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_REPLY_TO` | e-mails (domaine `comora.fr` vérifié dans Resend) |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | notifications push (clés propres à Comora) |
 | `CRON_SECRET` | protège les tâches planifiées |
-| `FOUNDER_DEADLINE` | date limite de l'offre fondateurs (20 janvier 2027) |
+| `FOUNDER_DEADLINE` | date limite de l'offre fondateurs (20 janvier 2027) : les églises créées avant sont fondatrices |
+| `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_ROOT_DOMAIN` | adresse de l'espace (par défaut `https://app.comora.fr`) et domaine racine |
+| `APP_TOKEN_SECRET` | signature des liens de réponse aux affectations |
 | `UNSPLASH_ACCESS_KEY` | recherche de photos dans la médiathèque (facultatif) |
 
 Les variables `NEXT_PUBLIC_*` sont figées au build : après une modification sur Vercel, redéployez. Les autres ne doivent **jamais** prendre ce préfixe.
@@ -74,7 +77,7 @@ Les variables `NEXT_PUBLIC_*` sont figées au build : après une modification su
 
 ```
 app/
-  (site)/, (app)/, admin/   landing, demande d'accès, administration des demandes
+  (site)/, (app)/           landing et pages légales
   espace/                   espace de gestion de l'église (pages, Server Actions, tests)
   sites/[slug]/             site public d'une église
   partage/[token]/          setlist partagée
@@ -97,8 +100,9 @@ docs/                       audit et plan du chantier
 
 Schéma dans `supabase/migrations/` :
 
-- `20261005…` et `20261008…` : demandes d'accès de la landing (`waitlist`, `invitations`, `early_access_accounts`), remplacées à l'étape 3 ;
-- `20261020…_espace_multi_eglises.sql` : l'espace de gestion, **cloisonné par église**.
+- `20261005…` et `20261008…` : anciennes demandes d'accès de la landing ; leurs tables sont supprimées par `20261022…` ;
+- `20261020…_espace_multi_eglises.sql` : l'espace de gestion, **cloisonné par église** ;
+- `20261022…_creation_espace.sql` : `create_church()` (création d'un espace en une transaction, réservée au serveur) et `legal_acceptances`.
 
 Règles du cloisonnement :
 
