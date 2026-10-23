@@ -266,6 +266,62 @@ async function main() {
     expect(membership?.role).toBe("admin");
   });
 
+  // ── Essai et lecture seule ────────────────────────────────────────────
+  await step("pendant l'essai : bandeau discret avec les jours restants et lien vers les offres", async () => {
+    await page.goto(BASE + "/espace/dashboard");
+    await expect(page.getByText(/Il vous reste (29|30) jours d’essai gratuit/)).toBeVisible();
+    await page.getByRole("link", { name: "Choisir une offre" }).first().click();
+    await expect(page).toHaveURL(/\/espace\/abonnement/);
+    await expect(page.getByText("Offre actuelle : Communauté (pendant l’essai)")).toBeVisible();
+  });
+
+  await step("à J-3 le bandeau passe à l'orange", async () => {
+    await db.from("churches").update({ trial_ends_at: new Date(Date.now() + 2.5 * 864e5).toISOString() }).eq("id", await churchRow());
+    await page.goto(BASE + "/espace/dashboard");
+    await expect(page.getByText("Il vous reste 3 jours d’essai gratuit.")).toBeVisible();
+  });
+
+  await step("essai terminé : lecture seule, tout se consulte, plus rien ne se modifie", async () => {
+    const id = await churchRow();
+    await db.from("churches").update({ trial_ends_at: new Date(Date.now() - 3600e3).toISOString() }).eq("id", id);
+    await page.goto(BASE + "/espace/dashboard");
+    await expect(page.getByText("Votre espace est en lecture seule")).toBeVisible();
+    await page.goto(BASE + "/espace/demarrage"); // lecture : possible
+    await expect(page.getByRole("heading", { name: /Bien démarrer/ })).toBeVisible();
+
+    await page.getByLabel("Nom de l’équipe").fill("Louange");
+    await page.getByRole("button", { name: "Créer l’équipe" }).click();
+    await expect(page).toHaveURL(/\/espace\/lecture-seule/, { timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "Votre espace est en lecture seule" })).toBeVisible();
+    await expect(page.getByText("Rien n’est perdu")).toBeVisible();
+    const { data: team } = await db.from("teams").select("id").eq("church_id", id).eq("name", "Louange");
+    expect(team).toEqual([]);
+  });
+
+  await step("le cron passe l'essai terminé en lecture seule et programme la suppression à +90 jours", async () => {
+    const id = await churchRow();
+    await db.rpc("church_lifecycle_step");
+    const { data } = await db.from("churches").select("billing_status, deletion_scheduled_at, trial_ends_at").eq("id", id).single();
+    expect(data?.billing_status).toBe("read_only");
+    const gap = (new Date(data!.deletion_scheduled_at).getTime() - new Date(data!.trial_ends_at).getTime()) / 864e5;
+    expect(Math.round(gap)).toBe(90);
+    await page.goto(BASE + "/espace/lecture-seule");
+    await expect(page.getByText("Rien n’est perdu")).toBeVisible();
+    if (process.env.FLOWS_SHOTS) await page.screenshot({ path: `${process.env.FLOWS_SHOTS}/lecture-seule.png`, fullPage: true });
+  });
+
+  await step("dès qu'une offre est active, l'espace se rouvre aussitôt", async () => {
+    const id = await churchRow();
+    await db.from("churches").update({ billing_status: "active", offer: "essentiel" }).eq("id", id);
+    await page.goto(BASE + "/espace/demarrage");
+    await page.getByLabel("Nom de l’équipe").fill("Louange");
+    await page.getByRole("button", { name: "Créer l’équipe" }).click();
+    await expect(page.getByText("Votre équipe est créée")).toBeVisible();
+    await page.goto(BASE + "/espace/dashboard");
+    await expect(page.getByText("lecture seule")).toHaveCount(0);
+    await expect(page.getByText("Terminez la mise en place")).toHaveCount(0);
+  });
+
   await step("le site public de l'église répond", async () => {
     const response = await page.goto(`${BASE}/sites/${slugBase}`);
     expect(response?.status()).toBe(200);

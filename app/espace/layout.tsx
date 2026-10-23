@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { getChurchContext } from '@/lib/auth/church'
 import { BenevoleNav } from './_components/BenevoleNav'
+import { AccessBanner } from './_components/AccessBanner'
 import { PwaInstallBanner } from './_components/PwaInstallBanner'
 import { ServiceWorkerRegistrar } from './_components/ServiceWorkerRegistrar'
 
@@ -37,6 +38,7 @@ export default async function BenevoleLayout({ children }: { children: React.Rea
         activeChurchId={ctx.church.churchId}
       />
       <div className="flex-1 lg:ml-60 min-w-0 pb-28 lg:pb-0">
+        <AccessBanner church={ctx.church} />
         {children}
       </div>
       <PwaInstallBanner />

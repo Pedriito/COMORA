@@ -71,6 +71,9 @@ export async function recordResponse(token: string, status: unknown, kind: Respo
 
   // Clé secrète : filtrée par l'id signé et par l'église de l'affectation.
   const admin = createAdminClient()
+  // Une église en lecture seule n'enregistre plus de réponses
+  const { data: writable } = await admin.rpc('church_is_writable', { p_church: assignment.churchId })
+  if (writable === false) return false
   const { error } = await admin
     .from('plan_assignments')
     .update({ status })

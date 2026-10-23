@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const { data: churches, error } = await admin
     .from('churches')
     .select('id, name, timezone')
-    .not('billing_status', 'in', '(canceled,pending_deletion)')
+    .not('billing_status', 'in', '(canceled,pending_deletion,read_only)')
 
   if (error) {
     console.error('[cron/reminders] erreur églises :', error.message)

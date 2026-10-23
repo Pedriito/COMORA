@@ -1,6 +1,8 @@
 import 'server-only'
 import { cache } from 'react'
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
+import { accessState, isWritable, type AccessState, type BillingStatus, type Offer } from '@/lib/billing/access'
 import { createClient } from '@/lib/supabase/server'
 
 /*
@@ -22,6 +24,11 @@ export type Membership = {
   churchSlug: string
   role: ChurchRole
   isPastoral: boolean
+  /** État d'accès (essai, abonnement, lecture seule). Absent dans les contextes de test. */
+  access?: AccessState
+  trialEndsAt?: string | null
+  offer?: Offer | null
+  deletionScheduledAt?: string | null
 }
 
 export type ChurchContext = {
@@ -47,7 +54,15 @@ type MembershipRow = {
   church_id: string
   role: ChurchRole
   is_pastoral: boolean
-  churches: { name: string; slug: string } | null
+  churches: {
+    name: string
+    slug: string
+    billing_status: BillingStatus
+    trial_ends_at: string | null
+    grace_ends_at: string | null
+    offer: Offer | null
+    deletion_scheduled_at: string | null
+  } | null
 }
 
 /** Compte connecté et église courante, ou null sans session ni église. */
@@ -59,7 +74,7 @@ export const getChurchContext = cache(async (): Promise<ChurchContext | null> =>
   const [{ data: rows }, { data: profile }] = await Promise.all([
     supabase
       .from('church_memberships')
-      .select('church_id, role, is_pastoral, churches(name, slug)')
+      .select('church_id, role, is_pastoral, churches(name, slug, billing_status, trial_ends_at, grace_ends_at, offer, deletion_scheduled_at)')
       .eq('user_id', user.id)
       .eq('status', 'active')
       .order('created_at'),
@@ -74,6 +89,10 @@ export const getChurchContext = cache(async (): Promise<ChurchContext | null> =>
       churchSlug: r.churches!.slug,
       role: r.role,
       isPastoral: r.is_pastoral,
+      access: accessState({ billingStatus: r.churches!.billing_status, trialEndsAt: r.churches!.trial_ends_at, graceEndsAt: r.churches!.grace_ends_at }),
+      trialEndsAt: r.churches!.trial_ends_at,
+      offer: r.churches!.offer,
+      deletionScheduledAt: r.churches!.deletion_scheduled_at,
     }))
   if (memberships.length === 0) return null
 
@@ -103,7 +122,19 @@ export async function requireChurch(required: Capability = 'membre'): Promise<Ch
     redirect(user ? '/espace/sans-eglise' : '/espace/login')
   }
   if (!grants(ctx.church, required)) redirect('/espace/dashboard')
+  await refuseWriteWhenReadOnly(ctx)
   return ctx
+}
+
+/**
+ * Garde-fou : en lecture seule (essai terminé, impayé), une Server Action ne peut rien
+ * écrire. On renvoie vers un écran qui explique pourquoi, au lieu d'une erreur technique.
+ * Les pages (lecture) ne sont pas concernées ; la base refuse de toute façon l'écriture (RLS).
+ */
+async function refuseWriteWhenReadOnly(ctx: ChurchContext) {
+  if (!ctx.church.access || isWritable(ctx.church.access)) return
+  const isServerAction = (await headers()).has('next-action')
+  if (isServerAction) redirect('/espace/lecture-seule')
 }
 
 /** Variante sans redirection, pour les actions qui renvoient une erreur affichable. */
