@@ -70,12 +70,15 @@ export async function inviteBenevole(formData: FormData) {
   const email     = text(formData, 'email').toLowerCase()
   const role      = churchRole(formData.get('role')) ?? 'membre'
   const teamIds   = (formData.getAll('team_ids') as string[]).filter(Boolean)
+  // Le guide de démarrage invite depuis sa propre page et y revient
+  const back = formData.get('return_to') === 'demarrage' ? '/espace/demarrage' : null
+  const errorPage = back ?? '/espace/admin/inviter'
 
-  if (!firstName || !isEmail(email)) redirect('/espace/admin/inviter?error=invalid')
+  if (!firstName || !isEmail(email)) redirect(`${errorPage}?error=invalid`)
 
   // Clé secrète : création (ou recherche) du compte Auth, sans modifier un compte existant
   const account = await findOrCreateAccount(createAdminClient(), { email, firstName, lastName })
-  if (!account) redirect('/espace/admin/inviter?error=failed')
+  if (!account) redirect(`${errorPage}?error=failed`)
   const userId = account.userId
 
   const { data: existingMembership } = await ctx.supabase
@@ -84,7 +87,7 @@ export async function inviteBenevole(formData: FormData) {
     .eq('church_id', churchId)
     .eq('user_id', userId)
     .maybeSingle()
-  if (existingMembership) redirect('/espace/admin/inviter?error=already_member')
+  if (existingMembership) redirect(`${errorPage}?error=already_member`)
 
   // Personne déjà connue de l'église (sans compte) avec cette adresse : on la relie au compte
   const { data: known } = await ctx.supabase
@@ -104,14 +107,14 @@ export async function inviteBenevole(formData: FormData) {
       .update({ user_id: userId, status: 'invited' })
       .eq('church_id', churchId)
       .eq('id', memberId)
-    if (error) redirect('/espace/admin/inviter?error=failed')
+    if (error) redirect(`${errorPage}?error=failed`)
   } else {
     const { data: member, error } = await ctx.supabase
       .from('members')
       .insert({ church_id: churchId, user_id: userId, first_name: firstName, last_name: lastName, status: 'invited' })
       .select('id')
       .single()
-    if (error || !member) redirect('/espace/admin/inviter?error=failed')
+    if (error || !member) redirect(`${errorPage}?error=failed`)
     memberId = member.id
     await ctx.supabase.from('member_contacts').insert({ member_id: memberId, church_id: churchId, email })
   }
@@ -119,7 +122,7 @@ export async function inviteBenevole(formData: FormData) {
   const { error: membershipError } = await ctx.supabase
     .from('church_memberships')
     .insert({ church_id: churchId, user_id: userId, role, status: 'invited' })
-  if (membershipError) redirect('/espace/admin/inviter?error=failed')
+  if (membershipError) redirect(`${errorPage}?error=failed`)
 
   revalidateTag('profiles', 'max')
 
@@ -145,7 +148,7 @@ export async function inviteBenevole(formData: FormData) {
   }
 
   const sent = await sendActivation(churchId, ctx.church.churchName, userId, email, firstName)
-  redirect(sent ? '/espace/admin?success=invited' : '/espace/admin?error=email_failed')
+  redirect(back ? `${back}?${sent ? 'invited=1' : 'error=email_failed'}` : sent ? '/espace/admin?success=invited' : '/espace/admin?error=email_failed')
 }
 
 /** Renvoie l'invitation d'une personne qui a un compte dans l'église. Renvoie un message d'erreur, ou null. */

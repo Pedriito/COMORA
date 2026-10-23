@@ -48,9 +48,14 @@ async function fillIdentity(page: Page, email: string) {
 async function main() {
   const browser = await chromium.launch();
   const failures: string[] = [];
+  let shotPage: Page | null = null;
   const step = async (name: string, fn: () => Promise<void>) => {
     try { await fn(); console.log(`✓ ${name}`); }
-    catch (error) { failures.push(`${name} : ${(error as Error).message.split("\n")[0]}`); console.log(`✗ ${name}`); }
+    catch (error) {
+      // FLOWS_SHOTS=<dossier> : une capture de la page au moment de l'échec
+      if (process.env.FLOWS_SHOTS && shotPage) await shotPage.screenshot({ path: `${process.env.FLOWS_SHOTS}/echec-${failures.length + 1}.png`, fullPage: true }).catch(() => undefined);
+      failures.push(`${name} : ${(error as Error).message.split("\n").slice(0, 6).join(" | ")}`); console.log(`✗ ${name}`);
+    }
   };
 
   // ── Parcours 1 : mot de passe ───────────────────────────────────────────
@@ -58,6 +63,7 @@ async function main() {
   const slugBase = `source-${run}`;
   const context = await browser.newContext();
   const page = await context.newPage();
+  shotPage = page;
 
   await step("la landing mène à l'inscription", () => startFromLanding(page));
 
@@ -144,18 +150,106 @@ async function main() {
     await expect(page.getByLabel("Ville")).toHaveValue("Lyon");
   });
 
-  await step("la création mène au tableau de bord de la nouvelle église", async () => {
+  await step("la création mène au guide de démarrage de la nouvelle église", async () => {
     await page.getByLabel("Adresse de votre église").fill(slugBase);
     await page.getByRole("checkbox").check();
     await page.getByRole("button", { name: "Créer l’espace de mon église" }).click();
     try {
-      await expect(page).toHaveURL(/\/espace\/dashboard/, { timeout: 20_000 });
+      await expect(page).toHaveURL(/\/espace\/demarrage/, { timeout: 20_000 });
     } catch (error) {
       const alerts = await page.locator("[role=alert], [role=status]").allInnerTexts();
       throw new Error(`${(error as Error).message.split("\n")[0]} — adresse : ${page.url()} — messages : ${JSON.stringify(alerts)}`);
     }
-    await expect(page.getByText(`Église de la Source ${run}`).first()).toBeVisible();
-    await expect(page.getByText("Administrateur")).toBeVisible();
+    await expect(page.getByRole("heading", { name: `Bien démarrer avec Église de la Source ${run}` })).toBeVisible();
+    await expect(page.getByText("0 étape sur 4")).toBeVisible();
+  });
+
+  // ── Guide de démarrage ────────────────────────────────────────────────
+  const churchRow = async () => (await db.from("churches").select("id").eq("slug", slugBase).single()).data!.id as string;
+
+  if (process.env.FLOWS_SHOTS) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: `${process.env.FLOWS_SHOTS}/guide-mobile.png`, fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+  }
+
+  await step("le modèle de fichier se télécharge (et pas sans être connecté)", async () => {
+    const response = await context.request.get(BASE + "/espace/demarrage/modele.csv");
+    expect(response.status()).toBe(200);
+    expect(await response.text()).toContain("Prénom;Nom;E-mail");
+    const anonymous = await (await browser.newContext()).request.get(BASE + "/espace/demarrage/modele.csv", { maxRedirects: 0 });
+    expect(anonymous.status()).toBeGreaterThanOrEqual(300);
+  });
+
+  await step("un fichier sans colonne « Prénom » est expliqué, rien n'est importé", async () => {
+    await page.setInputFiles('input[name="file"]', { name: "mauvais.csv", mimeType: "text/csv", buffer: Buffer.from("Nom;Ville\nDupont;Lyon") });
+    await page.getByRole("button", { name: "Vérifier le fichier" }).click();
+    await expect(page.getByText("colonne « Prénom »")).toBeVisible();
+  });
+
+  await step("l'import Excel : aperçu, lignes à corriger, puis import sans envoi d'e-mail", async () => {
+    const csv = "Prénom;Nom;E-mail\nMarie;Dupont;marie@exemple.fr\nSamuel;Martin;\n;Sans prénom;\nPaul;Durand;pas-un-mail\n";
+    await page.setInputFiles('input[name="file"]', { name: "membres.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+    await page.getByRole("button", { name: "Vérifier le fichier" }).click();
+    await expect(page.getByText("personnes prêtes")).toBeVisible();
+    await expect(page.getByText("2 lignes à corriger")).toBeVisible();
+    await page.getByText("Voir les lignes ignorées").click();
+    await expect(page.getByText("Ligne 4 : Prénom manquant.")).toBeVisible();
+    await page.getByRole("button", { name: "Importer 2 personnes" }).click();
+    await expect(page.getByText("2 personnes ajoutées")).toBeVisible();
+    const { count } = await db.from("members").select("id", { count: "exact", head: true }).eq("church_id", await churchRow());
+    expect(count).toBe(3); // les deux importées + l'administrateur
+  });
+
+  await step("l'import d'un vrai fichier .xlsx détecte les adresses déjà connues", async () => {
+    await page.goto(BASE + "/espace/demarrage");
+    await page.setInputFiles('input[name="file"]', "tests/fixtures/membres.xlsx");
+    await page.getByRole("button", { name: "Vérifier le fichier" }).click();
+    await page.getByRole("button", { name: "Importer 2 personnes" }).click();
+    await expect(page.getByText("1 personne ajoutée")).toBeVisible();
+    await expect(page.getByText("1 déjà connue")).toBeVisible();
+  });
+
+  await step("la première équipe et ses postes", async () => {
+    await page.goto(BASE + "/espace/demarrage");
+    await page.getByLabel("Nom de l’équipe").fill("Accueil");
+    await page.getByLabel("Postes (facultatif)").fill("Entrée\nCafé");
+    await page.getByRole("button", { name: "Créer l’équipe" }).click();
+    await expect(page.getByText("Votre équipe est créée")).toBeVisible();
+    const id = await churchRow();
+    const { data: positions } = await db.from("positions").select("name").eq("church_id", id).order("name");
+    expect((positions ?? []).map((p) => p.name)).toEqual(["Café", "Entrée"]);
+  });
+
+  await step("le premier culte, à la date et l'heure choisies", async () => {
+    await page.goto(BASE + "/espace/demarrage");
+    await page.getByLabel("Date", { exact: true }).fill("2027-03-14");
+    await page.getByLabel("Heure", { exact: true }).fill("10:30");
+    await page.getByRole("button", { name: "Créer le culte" }).click();
+    await expect(page.getByText("Votre premier culte est créé")).toBeVisible();
+    const { data: plan } = await db.from("plans").select("title, service_date").eq("church_id", await churchRow()).single();
+    expect(plan?.title).toBe("Culte du dimanche");
+    expect(plan?.service_date).toBe("2027-03-14T09:30:00+00:00"); // 10 h 30 à Paris, heure d'hiver
+  });
+
+  await step("l'invitation d'un responsable crée son accès (rôle responsable, invité)", async () => {
+    await page.goto(BASE + "/espace/demarrage");
+    await page.getByLabel("Adresse e-mail").fill(`julie-${run}@test.comora.fr`);
+    await page.locator("#invite-first").fill("Julie");
+    await page.getByRole("button", { name: "Envoyer l’invitation" }).click();
+    // Sans clé d'envoi (Resend) en local, la personne est créée mais l'e-mail ne part pas : les deux issues sont admises
+    await expect(page).toHaveURL(/\/espace\/demarrage\?(invited=1|error=email_failed)/);
+    const { data: m } = await db.from("church_memberships").select("role, status").eq("church_id", await churchRow()).eq("status", "invited").single();
+    expect(m).toEqual({ role: "responsable", status: "invited" });
+  });
+
+  await step("tout est fait : le guide le dit, et le tableau de bord ne réclame plus rien", async () => {
+    await page.goto(BASE + "/espace/demarrage");
+    await expect(page.getByText("4 étapes sur 4")).toBeVisible();
+    await page.getByRole("link", { name: "Aller au tableau de bord" }).click();
+    await expect(page).toHaveURL(/\/espace\/dashboard/);
+    await expect(page.getByText("Terminez la mise en place")).toHaveCount(0);
+    if (process.env.FLOWS_SHOTS) await page.screenshot({ path: `${process.env.FLOWS_SHOTS}/dashboard-final.png` });
   });
 
   await step("l'espace est bien enregistré (fondateur, essai de 30 jours, CGV, administrateur)", async () => {
@@ -168,7 +262,7 @@ async function main() {
     expect(days).toBeLessThan(30.1);
     const { data: acceptances } = await db.from("legal_acceptances").select("document, version").eq("church_id", church!.id);
     expect((acceptances ?? []).map((a) => a.document).sort()).toEqual(["cgv", "confidentialite"]);
-    const { data: membership } = await db.from("church_memberships").select("role").eq("church_id", church!.id).single();
+    const { data: membership } = await db.from("church_memberships").select("role").eq("church_id", church!.id).eq("status", "active").single();
     expect(membership?.role).toBe("admin");
   });
 

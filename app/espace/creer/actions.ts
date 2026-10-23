@@ -113,5 +113,5 @@ export async function createChurchSpace(_previous: CreateChurchState, formData: 
   }
 
   revalidatePath('/espace', 'layout')
-  redirect('/espace/dashboard')
+  redirect('/espace/demarrage')
 }

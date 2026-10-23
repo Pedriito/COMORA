@@ -3,6 +3,7 @@ import { requireChurch } from '@/lib/auth/church'
 import { resolveTimeZone, startOfLocalDayUtc, utcToLocalParts } from '@/lib/timezone'
 import { respondAssignment } from '../admin/plans/actions'
 import { CancelAssignmentButton } from './CancelAssignmentButton'
+import { getOnboarding } from '@/lib/onboarding/progress'
 import { PushManager } from '../_components/PushManager'
 import { PushPromptCard } from '../_components/PushPromptCard'
 import { IconBan, IconMusicalNote } from '../_components/Icons'
@@ -11,6 +12,8 @@ export default async function DashboardPage() {
   const ctx = await requireChurch('membre')
   const { supabase, memberId } = ctx
   const churchId = ctx.church.churchId
+  // Rappel du guide de démarrage, pour les administrateurs seulement
+  const onboarding = ctx.church.role === 'admin' ? await getOnboarding(ctx) : null
 
   const empty = Promise.resolve({ data: null })
   const [
@@ -91,6 +94,15 @@ export default async function DashboardPage() {
 
   return (
     <>
+      {onboarding?.showReminder && (
+        <Link
+          href="/espace/demarrage"
+          className="block bg-teal text-white px-5 py-3 font-sans text-sm text-center hover:bg-teal/90 transition-colors"
+          style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}
+        >
+          Terminez la mise en place de votre espace ({onboarding.steps.filter(s => s.done || s.skipped).length}/4) →
+        </Link>
+      )}
       {/* ══════════════════════════════════════════════════
           MOBILE (< lg)
       ══════════════════════════════════════════════════ */}
