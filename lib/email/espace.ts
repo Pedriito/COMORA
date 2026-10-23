@@ -341,3 +341,30 @@ export async function sendPlanAssignmentEmail({
     }),
   })
 }
+
+/** Alerte interne : une église vient de prendre l'offre Signature (accompagnement à lancer). */
+export async function sendSignatureSubscribedEmail({
+  churchName,
+  interval,
+}: {
+  churchName: string
+  interval: 'month' | 'year'
+}) {
+  const to = process.env.PLATFORM_NOTIFY_EMAIL?.trim()
+  if (!to) {
+    console.warn('[billing] PLATFORM_NOTIFY_EMAIL non défini : alerte Signature non envoyée')
+    return
+  }
+  await deliver('sendSignatureSubscribedEmail', {
+    to,
+    subject: `Nouvelle église Signature : ${churchName}`,
+    html: renderEmail({
+      preheader: `${churchName} vient de s'abonner à l'offre Signature.`,
+      heading: 'Nouvelle église Signature',
+      body:
+        emailParagraph(`<strong>${esc(churchName)}</strong> vient de s'abonner à l'offre <strong>Signature</strong> (${interval === 'year' ? 'annuel' : 'mensuel'}).`) +
+        emailParagraph("Il faut prendre contact pour lancer l'accompagnement."),
+      reason: 'Alerte interne Comora.',
+    }),
+  })
+}

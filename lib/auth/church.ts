@@ -114,7 +114,7 @@ export const getChurchContext = cache(async (): Promise<ChurchContext | null> =>
  * capacité demandés. Redirige sinon (connexion, ou tableau de bord).
  * Utilisable dans les pages comme dans les Server Actions.
  */
-export async function requireChurch(required: Capability = 'membre'): Promise<ChurchContext> {
+export async function requireChurch(required: Capability = 'membre', options: { allowReadOnly?: boolean } = {}): Promise<ChurchContext> {
   const ctx = await getChurchContext()
   if (!ctx) {
     const supabase = await createClient()
@@ -122,7 +122,8 @@ export async function requireChurch(required: Capability = 'membre'): Promise<Ch
     redirect(user ? '/espace/sans-eglise' : '/espace/login')
   }
   if (!grants(ctx.church, required)) redirect('/espace/dashboard')
-  await refuseWriteWhenReadOnly(ctx)
+  // Le paiement doit rester possible en lecture seule : c'est ainsi qu'on en sort
+  if (!options.allowReadOnly) await refuseWriteWhenReadOnly(ctx)
   return ctx
 }
 

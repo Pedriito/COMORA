@@ -8,6 +8,7 @@
  * branché dessus et FOUNDER_DEADLINE défini côté serveur.
  */
 import { chromium, expect, type Page } from "@playwright/test";
+import { handleStripeEvent } from "../../lib/billing/events";
 import { serviceClient } from "./local-supabase";
 
 const BASE = process.env.FLOWS_BASE_URL ?? "http://localhost:3300";
@@ -272,7 +273,7 @@ async function main() {
     await expect(page.getByText(/Il vous reste (29|30) jours d’essai gratuit/)).toBeVisible();
     await page.getByRole("link", { name: "Choisir une offre" }).first().click();
     await expect(page).toHaveURL(/\/espace\/abonnement/);
-    await expect(page.getByText("Offre actuelle : Communauté (pendant l’essai)")).toBeVisible();
+    await expect(page.getByText("Offre : Communauté (pendant l’essai)")).toBeVisible();
   });
 
   await step("à J-3 le bandeau passe à l'orange", async () => {
@@ -310,9 +311,43 @@ async function main() {
     if (process.env.FLOWS_SHOTS) await page.screenshot({ path: `${process.env.FLOWS_SHOTS}/lecture-seule.png`, fullPage: true });
   });
 
+  await step("en lecture seule, la page d'abonnement montre les prix fondateur et le paiement reste accessible", async () => {
+    await db.from("churches").update({ trial_ends_at: new Date(Date.now() - 3600e3).toISOString(), billing_status: "read_only" }).eq("id", await churchRow());
+    await page.goto(BASE + "/espace/abonnement");
+    await expect(page.getByRole("heading", { name: "Essentiel" })).toBeVisible();
+    await expect(page.getByText("Tarif fondateur").first()).toBeVisible();
+    await expect(page.getByText("12 € / mois").first()).toBeVisible().catch(() => undefined);
+    await expect(page.getByText("Payer 115,20 € par an")).toBeVisible();
+    await expect(page.getByText("Payer 12 € par mois")).toBeVisible();
+    await expect(page.getByText("Payer 278,40 € par an")).toBeVisible();
+    if (process.env.FLOWS_SHOTS) await page.screenshot({ path: `${process.env.FLOWS_SHOTS}/abonnement.png`, fullPage: true });
+  });
+
+  await step("sans clé Stripe, le paiement est signalé indisponible (pas d'erreur technique, pas de blocage lecture seule)", async () => {
+    await expect(page.getByText("Le paiement en ligne n’est pas encore ouvert")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Payer 12 € par mois" })).toBeDisabled();
+  });
+
+  await step("un paiement réussi (événements Stripe simulés) rouvre l'espace et ouvre la gestion de l'abonnement", async () => {
+    const id = await churchRow();
+    const customer = `cus_e2e_${run}`;
+    const subscription = `sub_e2e_${run}`;
+    await db.from("subscriptions").insert({ church_id: id, stripe_customer_id: customer });
+    const created = Math.floor(Date.now() / 1000);
+    await handleStripeEvent(db, { id: `evt_e2e_${run}_1`, type: "checkout.session.completed", created, data: { object: { mode: "subscription", customer, subscription, client_reference_id: id } } });
+    await handleStripeEvent(db, {
+      id: `evt_e2e_${run}_2`, type: "customer.subscription.created", created: created + 1,
+      data: { object: { id: subscription, customer, status: "active", cancel_at_period_end: false, items: { data: [{ price: { lookup_key: "essentiel_founder_month" }, current_period_end: created + 30 * 86400 }] } } },
+    });
+    await page.goto(BASE + "/espace/abonnement");
+    await expect(page.getByRole("button", { name: "Gérer mon abonnement" })).toBeVisible();
+    await expect(page.getByText("Prochain renouvellement le")).toBeVisible();
+    const { data: sub } = await db.from("subscriptions").select("offer, billing_interval, founder_price").eq("church_id", id).single();
+    expect(sub).toEqual({ offer: "essentiel", billing_interval: "month", founder_price: true });
+  });
+
   await step("dès qu'une offre est active, l'espace se rouvre aussitôt", async () => {
     const id = await churchRow();
-    await db.from("churches").update({ billing_status: "active", offer: "essentiel" }).eq("id", id);
     await page.goto(BASE + "/espace/demarrage");
     await page.getByLabel("Nom de l’équipe").fill("Louange");
     await page.getByRole("button", { name: "Créer l’équipe" }).click();
