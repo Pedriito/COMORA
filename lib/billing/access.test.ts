@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accessState, effectiveOffer, isWritable, trialDaysLeft, trialMessage, trialTone } from './access'
+import { accessState, effectiveOffer, isWritable, solidarityDaysLeft, trialDaysLeft, trialMessage, trialTone } from './access'
 
 const NOW = new Date('2026-11-10T12:00:00Z')
 const at = (days: number) => new Date(NOW.getTime() + days * 864e5)
@@ -54,5 +54,36 @@ describe('essai', () => {
     expect(effectiveOffer('trial', 'essentiel')).toBe('essentiel')
     expect(effectiveOffer('active', 'signature')).toBe('signature')
     expect(effectiveOffer('read_only', null)).toBeNull()
+  })
+})
+
+describe('tarif solidaire', () => {
+  const now = new Date('2027-03-01T12:00:00Z')
+  const daysAgo = (n: number) => new Date(now.getTime() - n * 864e5)
+
+  it('Essentiel pour une église solidaire, quel que soit son état', () => {
+    expect(effectiveOffer('active', 'communaute', true)).toBe('essentiel')
+    expect(effectiveOffer('trial', null, true)).toBe('essentiel')
+    expect(effectiveOffer('trial', null, false)).toBe('communaute')
+  })
+
+  it('30 membres atteints : 30 jours, puis lecture seule à la seconde exacte', () => {
+    const base = { billingStatus: 'active' as const, trialEndsAt: null, isSolidarity: true }
+    expect(accessState({ ...base, solidarityExceededAt: null }, now)).toBe('active')
+    expect(accessState({ ...base, solidarityExceededAt: daysAgo(29) }, now)).toBe('active')
+    expect(accessState({ ...base, solidarityExceededAt: daysAgo(30) }, now)).toBe('read_only')
+    expect(accessState({ ...base, solidarityExceededAt: daysAgo(31) }, now)).toBe('read_only')
+  })
+
+  it('une église non solidaire ignore la date', () => {
+    expect(accessState({ billingStatus: 'active', trialEndsAt: null, isSolidarity: false, solidarityExceededAt: daysAgo(90) }, now)).toBe('active')
+  })
+
+  it('jours restants pour choisir une offre', () => {
+    expect(solidarityDaysLeft(true, daysAgo(0), now)).toBe(30)
+    expect(solidarityDaysLeft(true, daysAgo(29), now)).toBe(1)
+    expect(solidarityDaysLeft(true, daysAgo(40), now)).toBe(0)
+    expect(solidarityDaysLeft(true, null, now)).toBeNull()
+    expect(solidarityDaysLeft(false, daysAgo(5), now)).toBeNull()
   })
 })

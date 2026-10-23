@@ -2,10 +2,10 @@ import Link from 'next/link'
 import { requireChurch } from '@/lib/auth/church'
 import { effectiveOffer, trialDaysLeft, trialMessage } from '@/lib/billing/access'
 import { isBillingConfigured } from '@/lib/billing/stripe'
-import { OFFERS, OFFER_CATALOG, priceCents } from '@/lib/offers'
+import { SOLIDARITY_MEMBER_THRESHOLD, OFFERS, OFFER_CATALOG, priceCents } from '@/lib/offers'
 import { formatEuros } from '@/lib/pricing'
 import { siteConfig } from '@/lib/site'
-import { openBillingPortal, startCheckout } from './actions'
+import { openBillingPortal, requestSolidarity, startCheckout } from './actions'
 
 export const metadata = { title: 'Mon abonnement' }
 
@@ -15,27 +15,36 @@ const MESSAGES: Record<string, { tone: 'ok' | 'info' | 'error'; text: string }> 
   'erreur:choix': { tone: 'error', text: 'Cette offre n’existe pas. Choisissez-en une ci-dessous.' },
   'erreur:deja': { tone: 'error', text: 'Votre église a déjà un abonnement. Utilisez « Gérer mon abonnement » pour le modifier.' },
   'erreur:aucun': { tone: 'error', text: 'Aucun abonnement à gérer pour le moment.' },
+  'erreur:trop_de_membres': { tone: 'error', text: 'Votre église compte plus de membres que cette offre n’en permet. Choisissez une offre plus grande.' },
+  'erreur:trop_d_admins': { tone: 'error', text: 'Votre église a plus d’administrateurs que cette offre n’en permet. Choisissez une offre plus grande, ou retirez des droits d’administration.' },
+  'solidarite:demandee': { tone: 'ok', text: 'Votre demande de tarif solidaire est envoyée. Nous revenons vers vous très vite.' },
+  'solidarite:en-cours': { tone: 'info', text: 'Votre demande de tarif solidaire est déjà en cours d’examen.' },
+  'solidarite:deja': { tone: 'info', text: 'Votre église bénéficie déjà du tarif solidaire.' },
+  'solidarite:trop-grande': { tone: 'error', text: 'Le tarif solidaire est réservé aux églises de moins de 30 membres.' },
   'erreur:indisponible': { tone: 'error', text: 'Le paiement n’est pas disponible pour le moment. Réessayez dans un instant, ou écrivez-nous.' },
 }
 
 const TONES = { ok: 'bg-teal/10 text-teal-dark border-teal/30', info: 'bg-white text-dark/70 border-teal/20', error: 'bg-red-50 text-red-800 border-red-200' }
 const longDate = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
 
-export default async function SubscriptionPage({ searchParams }: { searchParams: Promise<{ paiement?: string; erreur?: string }> }) {
+export default async function SubscriptionPage({ searchParams }: { searchParams: Promise<{ paiement?: string; erreur?: string; solidarite?: string }> }) {
   const { church, supabase } = await requireChurch('admin')
   const params = await searchParams
-  const message = MESSAGES[params.paiement ? `paiement:${params.paiement}` : params.erreur ? `erreur:${params.erreur}` : '']
+  const message = MESSAGES[params.paiement ? `paiement:${params.paiement}` : params.erreur ? `erreur:${params.erreur}` : params.solidarite ? `solidarite:${params.solidarite}` : '']
 
-  const [{ data: row }, { data: details }] = await Promise.all([
+  const [{ data: row }, { data: details }, { count: memberCount }] = await Promise.all([
     supabase.from('subscriptions').select('offer, billing_interval, founder_price, status, current_period_end, cancel_at_period_end').eq('church_id', church.churchId).maybeSingle(),
     supabase.from('churches').select('is_founder').eq('id', church.churchId).single(),
+    supabase.from('members').select('id', { count: 'exact', head: true }).eq('church_id', church.churchId).neq('status', 'inactive'),
   ])
   const founder = details?.is_founder === true
   const access = church.access ?? 'trial'
   const days = trialDaysLeft(access, church.trialEndsAt ?? null)
-  const offer = effectiveOffer(access, church.offer ?? null)
+  const offer = effectiveOffer(access, church.offer ?? null, church.isSolidarity)
   const subscribed = !!row && ['active', 'past_due', 'trialing'].includes(row.status ?? '')
   const canPay = isBillingConfigured()
+  const members = memberCount ?? 0
+  const canAskSolidarity = !subscribed && !church.isSolidarity && !church.solidarityRequestedAt && members < SOLIDARITY_MEMBER_THRESHOLD
 
   return (
     <main className="min-h-screen bg-teal-50 px-6 py-12">
@@ -45,7 +54,7 @@ export default async function SubscriptionPage({ searchParams }: { searchParams:
         <div className="bg-white rounded-2xl border border-teal/20 p-8">
           <h1 className="font-display text-3xl text-dark font-light">Mon abonnement</h1>
           <p className="mt-3 font-sans text-dark/70">
-            {days !== null ? trialMessage(days) : access === 'active' ? 'Votre abonnement est actif.' : access === 'grace' ? 'Le dernier paiement n’a pas abouti : réglez-le pour garder l’accès.' : 'Votre espace est en lecture seule.'}
+            {church.isSolidarity ? 'Votre église bénéficie du tarif solidaire : Essentiel, gratuit.' : days !== null ? trialMessage(days) : access === 'active' ? 'Votre abonnement est actif.' : access === 'grace' ? 'Le dernier paiement n’a pas abouti : réglez-le pour garder l’accès.' : 'Votre espace est en lecture seule.'}
             {offer && <> Offre : <strong>{OFFER_CATALOG[offer].name}</strong>{access === 'trial' && ' (pendant l’essai)'}.</>}
           </p>
           {subscribed && row?.current_period_end && (
@@ -56,6 +65,19 @@ export default async function SubscriptionPage({ searchParams }: { searchParams:
         </div>
 
         {message && <p role={message.tone === 'error' ? 'alert' : 'status'} className={`text-sm font-sans rounded-lg border px-4 py-3 ${TONES[message.tone]}`}>{message.text}</p>}
+
+        {canAskSolidarity && (
+          <form action={requestSolidarity} className="bg-white rounded-2xl border border-teal/20 p-6 space-y-3">
+            <h2 className="font-display text-xl text-dark font-light">Tarif solidaire</h2>
+            <p className="font-sans text-sm text-dark/70">
+              Votre église a moins de {SOLIDARITY_MEMBER_THRESHOLD} membres ? Elle peut utiliser l’offre Essentiel gratuitement. Nous examinons chaque demande ; si l’église grandit, vous aurez 30 jours pour choisir une offre.
+            </p>
+            <button type="submit" className="px-5 py-2.5 rounded-lg border border-teal/30 text-dark font-sans text-sm font-medium hover:bg-teal-50 transition-colors">Demander le tarif solidaire</button>
+          </form>
+        )}
+        {church.solidarityRequestedAt && !church.isSolidarity && !subscribed && (
+          <p className="font-sans text-sm text-dark/70 bg-white rounded-lg border border-teal/20 px-4 py-3">Votre demande de tarif solidaire est en cours d’examen.</p>
+        )}
 
         {subscribed ? (
           <form action={openBillingPortal} className="bg-white rounded-2xl border border-teal/20 p-8 space-y-3">

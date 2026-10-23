@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { requireChurch } from '@/lib/auth/church'
+import { churchOffer, limitKind, limitMessage } from '@/lib/billing/limits'
 import { localToUtcIso } from '@/lib/timezone'
 import { churchTimeZone } from '../admin/plans/notifyTeamLeaders'
 import { readMembersFile } from '@/lib/onboarding/read-file'
@@ -51,6 +52,9 @@ export async function confirmMembersImport(_prev: StepState, formData: FormData)
   if (checked.rows.length === 0) return { error: 'Aucune personne à importer.' }
 
   const { data, error } = await ctx.supabase.rpc('import_members', { p_church_id: ctx.church.churchId, p_rows: checked.rows })
+  if (limitKind(error)) {
+    return { error: `${limitMessage('members', churchOffer(ctx.church))} Rien n’a été importé : le fichier est refusé en entier.` }
+  }
   if (error || !data) return { error: 'L’import n’a pas pu aboutir. Rien n’a été ajouté : vous pouvez réessayer.' }
   refresh()
   const result = data as { imported: number; skipped: number }

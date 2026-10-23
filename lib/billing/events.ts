@@ -151,10 +151,15 @@ async function onSubscription(admin: Admin, event: StripeEventLike, deps: EventD
     case 'trialing':
       churchPatch.billing_status = 'active' // le déclencheur de la base efface grâce et suppression programmée
       churchPatch.offer = parsed.offer
+      // Une église qui paie quitte le tarif solidaire (et son échéance des 30 membres)
+      churchPatch.is_solidarity = false
+      churchPatch.solidarity_exceeded_at = null
       break
     case 'past_due':
       churchPatch.billing_status = 'past_due'
       churchPatch.offer = parsed.offer
+      churchPatch.is_solidarity = false
+      churchPatch.solidarity_exceeded_at = null
       churchPatch.grace_ends_at = church.billing_status === 'past_due' && church.grace_ends_at ? church.grace_ends_at : plusDays(now, GRACE_DAYS)
       break
     case 'canceled':

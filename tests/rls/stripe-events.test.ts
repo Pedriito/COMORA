@@ -249,3 +249,12 @@ describe("accès aux données de facturation", () => {
     expect(data ?? []).toEqual([]);
   });
 });
+
+describe("tarif solidaire", () => {
+  it("une église solidaire qui s'abonne quitte le tarif solidaire", async () => {
+    const c = await church({ billing_status: "active", offer: "essentiel", is_solidarity: true, solidarity_exceeded_at: new Date().toISOString() });
+    expect(await handleStripeEvent(db, subscriptionEvent(c, "customer.subscription.created", {}, "communaute_month"), deps)).toBe("processed");
+    const { data } = await db.from("churches").select("is_solidarity, solidarity_exceeded_at, offer, billing_status").eq("id", c.churchId).single();
+    expect(data).toMatchObject({ is_solidarity: false, solidarity_exceeded_at: null, offer: "communaute", billing_status: "active" });
+  });
+});

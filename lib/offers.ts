@@ -1,7 +1,7 @@
 /**
  * Catalogue des offres Comora : noms, prix et clés de recherche Stripe.
  * Vocabulaire : « offre » (offer), jamais « plan » (qui désigne les plans de culte).
- * Les limites par offre (membres, administrateurs, site public…) rejoignent ce fichier à l'étape 7.
+ * Les limites par offre vivent ici ; la table SQL `offer_limits` en est la copie (un test les compare).
  */
 import { annualTotal } from '@/lib/pricing'
 
@@ -25,6 +25,36 @@ export const OFFER_CATALOG: Record<OfferId, OfferInfo> = {
   essentiel: { id: 'essentiel', name: 'Essentiel', monthly: 19, founderMonthly: 12, summary: 'Pour démarrer : jusqu’à 100 membres.' },
   communaute: { id: 'communaute', name: 'Communauté', monthly: 49, founderMonthly: 29, summary: 'Jusqu’à 500 membres, site public de l’église.' },
   signature: { id: 'signature', name: 'Signature', monthly: 119, founderMonthly: 69, summary: 'Membres illimités, accompagnement et personnalisation.' },
+}
+
+/** Ce que chaque offre permet. `null` = illimité. */
+export type OfferLimits = {
+  maxMembers: number | null
+  maxAdmins: number | null
+  publicSite: boolean
+  customBranding: boolean
+  customDomain: boolean
+  multiSite: boolean
+  advancedRoles: boolean
+}
+
+export const OFFER_LIMITS: Record<OfferId, OfferLimits> = {
+  essentiel:  { maxMembers: 100,  maxAdmins: 3,    publicSite: false, customBranding: false, customDomain: false, multiSite: false, advancedRoles: false },
+  communaute: { maxMembers: 500,  maxAdmins: null, publicSite: true,  customBranding: false, customDomain: false, multiSite: false, advancedRoles: false },
+  signature:  { maxMembers: null, maxAdmins: null, publicSite: true,  customBranding: true,  customDomain: true,  multiSite: true,  advancedRoles: true },
+}
+
+/** Tarif solidaire : Essentiel gratuit tant que l'église a moins de 30 membres, puis 30 jours pour choisir une offre. */
+export const SOLIDARITY_MEMBER_THRESHOLD = 30
+
+/** Plus petite offre qui accepte `count` membres, ou null si aucune (jamais : Signature est illimitée). */
+export function offerForMembers(count: number): OfferId {
+  return OFFERS.find(o => { const max = OFFER_LIMITS[o].maxMembers; return max === null || count <= max }) ?? 'signature'
+}
+
+/** Offre immédiatement supérieure à celle indiquée (celle proposée quand une limite est atteinte). */
+export function nextOffer(offer: OfferId): OfferId | null {
+  return OFFERS[OFFERS.indexOf(offer) + 1] ?? null
 }
 
 export function isOfferId(value: unknown): value is OfferId {

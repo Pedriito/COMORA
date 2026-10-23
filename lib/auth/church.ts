@@ -29,6 +29,10 @@ export type Membership = {
   trialEndsAt?: string | null
   offer?: Offer | null
   deletionScheduledAt?: string | null
+  /** Tarif solidaire : accordé, demandé, et date des 30 membres atteints. */
+  isSolidarity?: boolean
+  solidarityRequestedAt?: string | null
+  solidarityExceededAt?: string | null
 }
 
 export type ChurchContext = {
@@ -62,6 +66,9 @@ type MembershipRow = {
     grace_ends_at: string | null
     offer: Offer | null
     deletion_scheduled_at: string | null
+    is_solidarity: boolean
+    solidarity_requested_at: string | null
+    solidarity_exceeded_at: string | null
   } | null
 }
 
@@ -74,7 +81,7 @@ export const getChurchContext = cache(async (): Promise<ChurchContext | null> =>
   const [{ data: rows }, { data: profile }] = await Promise.all([
     supabase
       .from('church_memberships')
-      .select('church_id, role, is_pastoral, churches(name, slug, billing_status, trial_ends_at, grace_ends_at, offer, deletion_scheduled_at)')
+      .select('church_id, role, is_pastoral, churches(name, slug, billing_status, trial_ends_at, grace_ends_at, offer, deletion_scheduled_at, is_solidarity, solidarity_requested_at, solidarity_exceeded_at)')
       .eq('user_id', user.id)
       .eq('status', 'active')
       .order('created_at'),
@@ -89,10 +96,19 @@ export const getChurchContext = cache(async (): Promise<ChurchContext | null> =>
       churchSlug: r.churches!.slug,
       role: r.role,
       isPastoral: r.is_pastoral,
-      access: accessState({ billingStatus: r.churches!.billing_status, trialEndsAt: r.churches!.trial_ends_at, graceEndsAt: r.churches!.grace_ends_at }),
+      access: accessState({
+        billingStatus: r.churches!.billing_status,
+        trialEndsAt: r.churches!.trial_ends_at,
+        graceEndsAt: r.churches!.grace_ends_at,
+        isSolidarity: r.churches!.is_solidarity,
+        solidarityExceededAt: r.churches!.solidarity_exceeded_at,
+      }),
       trialEndsAt: r.churches!.trial_ends_at,
       offer: r.churches!.offer,
       deletionScheduledAt: r.churches!.deletion_scheduled_at,
+      isSolidarity: r.churches!.is_solidarity,
+      solidarityRequestedAt: r.churches!.solidarity_requested_at,
+      solidarityExceededAt: r.churches!.solidarity_exceeded_at,
     }))
   if (memberships.length === 0) return null
 

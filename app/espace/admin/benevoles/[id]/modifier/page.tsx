@@ -1,4 +1,5 @@
 import { requireChurch } from '@/lib/auth/church'
+import { limitMessageFor } from '@/lib/billing/limits'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { updateBenevoleAdmin } from '../../../actions'
@@ -65,7 +66,7 @@ export default async function ModifierBenevolePage({
       </header>
 
       <main className="max-w-xl mx-auto px-6 py-8">
-        {flashError && <FlashMessage message={errors[flashError] ?? errors.failed} type="error" />}
+        {flashError && <FlashMessage message={limitMessageFor(flashError, ctx.church) ?? errors[flashError] ?? errors.failed} type="error" />}
 
         <div className="bg-white rounded-2xl border border-teal/20 p-6">
           <form action={updateBenevoleAdmin} className="space-y-5">

@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation'
 import { revalidateTag } from 'next/cache'
 import { sendInviteEmail } from '@/lib/email/espace'
 import { frequencyLabels, roleLabels, statusLabels } from '@/lib/labels'
+import { LIMIT_ERROR, limitKind } from '@/lib/billing/limits'
 import { activationUrl, createActivation, findOrCreateAccount, isEmail } from '../activer/activation'
 
 /** Rôles d'église proposés (liste fermée). */
@@ -27,6 +28,12 @@ function text(formData: FormData, name: string): string {
 /** La base refuse de retirer le dernier administrateur d'une église. */
 function isLastAdminError(error: { code?: string; message?: string } | null): boolean {
   return !!error && (error.code === '23514' || /administrateur/i.test(error.message ?? ''))
+}
+
+/** Adresse de retour : la limite de l'offre a empêché l'ajout, sinon échec ordinaire. */
+function failure(page: string, error: { code?: string; message?: string } | null): string {
+  const kind = limitKind(error)
+  return `${page}?error=${kind ? LIMIT_ERROR[kind] : 'failed'}`
 }
 
 /** Personne de l'église courante (relue avec la session : la RLS et le filtre d'église font foi). */
@@ -107,14 +114,14 @@ export async function inviteBenevole(formData: FormData) {
       .update({ user_id: userId, status: 'invited' })
       .eq('church_id', churchId)
       .eq('id', memberId)
-    if (error) redirect(`${errorPage}?error=failed`)
+    if (error) redirect(failure(errorPage, error))
   } else {
     const { data: member, error } = await ctx.supabase
       .from('members')
       .insert({ church_id: churchId, user_id: userId, first_name: firstName, last_name: lastName, status: 'invited' })
       .select('id')
       .single()
-    if (error || !member) redirect(`${errorPage}?error=failed`)
+    if (error || !member) redirect(failure(errorPage, error))
     memberId = member.id
     await ctx.supabase.from('member_contacts').insert({ member_id: memberId, church_id: churchId, email })
   }
@@ -122,7 +129,11 @@ export async function inviteBenevole(formData: FormData) {
   const { error: membershipError } = await ctx.supabase
     .from('church_memberships')
     .insert({ church_id: churchId, user_id: userId, role, status: 'invited' })
-  if (membershipError) redirect(`${errorPage}?error=failed`)
+  if (membershipError) {
+    // Limite d'administrateurs : la personne vient d'être ajoutée comme membre, on retire cet ajout
+    if (limitKind(membershipError) && !known) await ctx.supabase.from('members').delete().eq('church_id', churchId).eq('id', memberId)
+    redirect(failure(errorPage, membershipError))
+  }
 
   revalidateTag('profiles', 'max')
 
@@ -212,7 +223,7 @@ export async function updateBenevoleAdmin(formData: FormData) {
     .update({ first_name: firstName, last_name: lastName, ...(status ? { status } : {}) })
     .eq('church_id', churchId)
     .eq('id', member.id)
-  if (memberError) redirect(`${editUrl}?error=failed`)
+  if (memberError) redirect(failure(editUrl, memberError))
 
   const { error: contactError } = await ctx.supabase
     .from('member_contacts')
@@ -237,7 +248,7 @@ export async function updateBenevoleAdmin(formData: FormData) {
         .eq('church_id', churchId)
         .eq('user_id', member.user_id)
       if (isLastAdminError(error)) redirect(`${editUrl}?error=last_admin`)
-      if (error) redirect(`${editUrl}?error=failed`)
+      if (error) redirect(failure(editUrl, error))
     }
   }
 

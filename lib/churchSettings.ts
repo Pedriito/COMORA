@@ -71,24 +71,29 @@ export function toChurchSettings(
   }
 }
 
-export type PublicChurchSite = { church: Church; settings: ChurchSettings; schedules: ChurchSchedule[] }
+export type PublicChurchSite = { published: true; church: Church; settings: ChurchSettings; schedules: ChurchSchedule[] }
+/** L'église existe, mais son offre n'inclut pas de site public. */
+export type UnpublishedChurchSite = { published: false; church: { name: string; slug: string } }
 
 /**
  * Site public d'une église, par la fonction `public_church_site` : seule porte
  * d'entrée du rôle anonyme (aucune lecture directe des tables). Null si le slug est inconnu.
  */
-export const getPublicChurchSite = cache(async (slug: string): Promise<PublicChurchSite | null> => {
+export const getPublicChurchSite = cache(async (slug: string): Promise<PublicChurchSite | UnpublishedChurchSite | null> => {
   try {
     const supabase = createAnonClient()
     if (!supabase) return null
     const { data } = await supabase.rpc('public_church_site', { target_slug: slug })
     const site = data as {
+      published?: boolean
       church?: Church
       settings?: Partial<Omit<ChurchSettings, 'church_name'>> | null
       schedules?: ChurchSchedule[] | null
     } | null
     if (!site?.church) return null
+    if (site.published === false) return { published: false, church: { name: site.church.name, slug: site.church.slug } }
     return {
+      published: true,
       church: site.church,
       settings: toChurchSettings(site.settings, site.church.name),
       schedules: site.schedules ?? [],

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { requireChurch } from '@/lib/auth/church'
+import { limitMessageFor } from '@/lib/billing/limits'
 import { getOnboarding, type StepKey } from '@/lib/onboarding/progress'
 import { localDateString, resolveTimeZone } from '@/lib/timezone'
 import { inviteBenevole } from '../admin/actions'
@@ -81,7 +82,7 @@ export default async function DemarragePage({ searchParams }: { searchParams: Pr
         </div>
 
         {params.invited && <p role="status" className="text-sm font-sans text-teal-dark bg-white border border-teal/20 rounded-lg px-4 py-3">Invitation envoyée.</p>}
-        {params.error && <p role="alert" className="text-sm font-sans text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-3">{ERRORS[params.error] ?? ERRORS.failed}</p>}
+        {params.error && <p role="alert" className="text-sm font-sans text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-3">{limitMessageFor(params.error, ctx.church) ?? ERRORS[params.error] ?? ERRORS.failed}</p>}
 
         {onboarding.steps.map((step, index) => (
           <section key={step.key} className="bg-white rounded-2xl border border-teal/20 p-7" aria-labelledby={`step-${step.key}`}>

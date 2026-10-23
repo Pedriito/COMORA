@@ -8,6 +8,7 @@
 export const TRIAL_DAYS = 30
 export const GRACE_DAYS = 7
 export const RETENTION_DAYS = 90
+export const SOLIDARITY_GRACE_DAYS = 30
 
 export type BillingStatus = 'trialing' | 'active' | 'past_due' | 'read_only' | 'canceled' | 'pending_deletion'
 export type AccessState = 'trial' | 'active' | 'grace' | 'read_only' | 'pending_deletion'
@@ -17,12 +18,17 @@ export type AccessInput = {
   billingStatus: BillingStatus
   trialEndsAt: string | Date | null
   graceEndsAt?: string | Date | null
+  /** Tarif solidaire : date à laquelle l'église a atteint 30 membres (30 jours pour choisir une offre). */
+  isSolidarity?: boolean
+  solidarityExceededAt?: string | Date | null
 }
 
 const time = (value: string | Date | null | undefined) => (value ? new Date(value).getTime() : null)
 
-export function accessState({ billingStatus, trialEndsAt, graceEndsAt }: AccessInput, now: Date = new Date()): AccessState {
+export function accessState({ billingStatus, trialEndsAt, graceEndsAt, isSolidarity, solidarityExceededAt }: AccessInput, now: Date = new Date()): AccessState {
   const t = now.getTime()
+  const exceeded = time(solidarityExceededAt)
+  if (isSolidarity && exceeded !== null && exceeded + SOLIDARITY_GRACE_DAYS * 864e5 <= t) return 'read_only'
   switch (billingStatus) {
     case 'active':
       return 'active'
@@ -52,9 +58,17 @@ export function trialDaysLeft(state: AccessState, trialEndsAt: string | Date | n
   return Math.max(0, Math.ceil((end - now.getTime()) / 864e5))
 }
 
-/** Offre qui s'applique : Communauté pendant l'essai, sinon l'offre choisie. */
-export function effectiveOffer(state: AccessState, offer: Offer | null): Offer | null {
+/** Offre qui s'applique : Essentiel pour une église solidaire, Communauté pendant l'essai, sinon l'offre choisie. */
+export function effectiveOffer(state: AccessState, offer: Offer | null, isSolidarity = false): Offer | null {
+  if (isSolidarity) return 'essentiel'
   return state === 'trial' ? offer ?? 'communaute' : offer
+}
+
+/** Jours restants pour choisir une offre quand une église solidaire a atteint 30 membres, ou null. */
+export function solidarityDaysLeft(isSolidarity: boolean, exceededAt: string | Date | null | undefined, now: Date = new Date()): number | null {
+  const start = time(exceededAt)
+  if (!isSolidarity || start === null) return null
+  return Math.max(0, Math.ceil((start + SOLIDARITY_GRACE_DAYS * 864e5 - now.getTime()) / 864e5))
 }
 
 export type TrialTone = 'calm' | 'soon' | 'last'

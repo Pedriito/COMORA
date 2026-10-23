@@ -368,3 +368,24 @@ export async function sendSignatureSubscribedEmail({
     }),
   })
 }
+
+/** Alerte interne : une église demande le tarif solidaire (à valider dans le back-office). */
+export async function sendSolidarityRequestEmail({ churchName, memberCount }: { churchName: string; memberCount: number }) {
+  const to = process.env.PLATFORM_NOTIFY_EMAIL?.trim()
+  if (!to) {
+    console.warn('[solidarité] PLATFORM_NOTIFY_EMAIL non défini : alerte non envoyée')
+    return
+  }
+  await deliver('sendSolidarityRequestEmail', {
+    to,
+    subject: `Demande de tarif solidaire : ${churchName}`,
+    html: renderEmail({
+      preheader: `${churchName} demande le tarif solidaire.`,
+      heading: 'Demande de tarif solidaire',
+      body:
+        emailParagraph(`<strong>${esc(churchName)}</strong> demande le tarif solidaire (${memberCount} ${memberCount > 1 ? 'membres' : 'membre'} aujourd'hui).`) +
+        emailParagraph('À examiner et valider dans le back-office.'),
+      reason: 'Alerte interne Comora.',
+    }),
+  })
+}

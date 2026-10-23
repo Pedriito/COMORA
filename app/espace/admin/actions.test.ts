@@ -115,6 +115,29 @@ describe('inviteBenevole', () => {
     expect(mocks.sendInviteEmail).not.toHaveBeenCalled()
   })
 
+  it('limite de membres atteinte : message dédié, aucune invitation envoyée', async () => {
+    useContext('admin', {
+      church_memberships: [ok(null)],
+      member_contacts: [ok(null)],
+      members: [{ data: null, error: { message: 'limite_membres', code: 'P0001' } as never }],
+    })
+    const url = await redirectedTo(inviteBenevole(fd({ first_name: 'A', last_name: 'B', email: 'a@b.fr' })))
+    expect(url).toBe('/espace/admin/inviter?error=limit_members')
+    expect(mocks.sendInviteEmail).not.toHaveBeenCalled()
+  })
+
+  it('limite d’administrateurs atteinte : la personne ajoutée à l’instant est retirée, aucune invitation envoyée', async () => {
+    const supabase = useContext('admin', {
+      church_memberships: [ok(null), { data: null, error: { message: 'limite_administrateurs', code: 'P0001' } as never }],
+      member_contacts: [ok(null), ok(null)],
+      members: [ok({ id: 'member-1' }), ok(null)],
+    })
+    const url = await redirectedTo(inviteBenevole(fd({ first_name: 'A', last_name: 'B', email: 'a@b.fr', role: 'admin' })))
+    expect(url).toBe('/espace/admin/inviter?error=limit_admins')
+    expect(supabase.calls.filter(t => t === 'members')).toHaveLength(2) // insertion, puis retrait de la personne
+    expect(mocks.sendInviteEmail).not.toHaveBeenCalled()
+  })
+
   it("signale un e-mail non envoyé sans exposer de détail technique", async () => {
     useContext('admin', freshInvite)
     mocks.sendInviteEmail.mockRejectedValue(new Error('Resend: clé invalide re_xxx'))
@@ -198,6 +221,14 @@ describe('updateBenevoleAdmin', () => {
     const url = await redirectedTo(updateBenevoleAdmin(fd({ ...form, role: 'membre' })))
 
     expect(url).toBe('/espace/admin/benevoles/member-1/modifier?error=last_admin')
+  })
+
+  it('réactiver une personne dans une église pleine : message de limite', async () => {
+    useContext('admin', {
+      members: [ok(person), { data: null, error: { message: 'limite_membres', code: 'P0001' } as never }],
+    })
+    const url = await redirectedTo(updateBenevoleAdmin(fd({ ...form, status: 'active' })))
+    expect(url).toBe('/espace/admin/benevoles/member-1/modifier?error=limit_members')
   })
 
   it('ignore un rôle hors de la liste fermée', async () => {

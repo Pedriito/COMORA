@@ -12,12 +12,15 @@ vi.mock('@/lib/auth/church', () => ({ requireChurch: mocks.requireChurch }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/billing/stripe', () => ({ getStripe: mocks.getStripe }))
 
-const { startCheckout, openBillingPortal } = await import('./actions')
+const sendSolidarity = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('@/lib/email/espace', () => ({ sendSolidarityRequestEmail: sendSolidarity }))
+
+const { startCheckout, openBillingPortal, requestSolidarity } = await import('./actions')
 
 /** Requête Supabase factice : la même réponse quelle que soit la chaîne d'appels. */
 const query = (result: unknown) => {
   const chain: Record<string, unknown> = {}
-  for (const m of ['select', 'eq', 'insert']) chain[m] = () => chain
+  for (const m of ['select', 'eq', 'neq', 'in', 'is', 'update', 'insert']) chain[m] = () => chain
   chain.single = () => Promise.resolve(result)
   chain.maybeSingle = () => Promise.resolve(result)
   chain.then = (resolve: (v: unknown) => unknown) => resolve(result)
@@ -33,14 +36,21 @@ const stripe = {
 let subscriptionRow: unknown
 let insertError: unknown
 
-function setup({ founder = false, subscription = null as unknown } = {}) {
+let updatedChurch: Record<string, unknown> | null
+
+function setup({ founder = false, subscription = null as unknown, members = 10, admins = 1, church = {} as Record<string, unknown> } = {}) {
   subscriptionRow = subscription
   insertError = null
+  updatedChurch = null
   mocks.requireChurch.mockResolvedValue({
     userId: 'u1',
-    church: { churchId: 'church-1', role: 'admin' },
+    church: { churchId: 'church-1', churchName: 'Église de la Source', role: 'admin', ...church },
     supabase: {
-      from: () => query({ data: { name: 'Église de la Source', is_founder: founder } }),
+      from: (table: string) => query(
+        table === 'members' ? { data: null, count: members }
+          : table === 'church_memberships' ? { data: null, count: admins }
+          : { data: { name: 'Église de la Source', is_founder: founder } },
+      ),
       auth: { getUser: () => Promise.resolve({ data: { user: { email: 'admin@exemple.fr' } } }) },
     },
   })
@@ -48,6 +58,7 @@ function setup({ founder = false, subscription = null as unknown } = {}) {
     from: () => ({
       select: () => query({ data: subscriptionRow }),
       insert: () => Promise.resolve({ error: insertError }),
+      update: (patch: Record<string, unknown>) => { updatedChurch = patch; return query({ error: null }) },
     }),
   })
   mocks.getStripe.mockReturnValue(stripe)
@@ -178,5 +189,59 @@ describe('openBillingPortal', () => {
     await redirectedTo(openBillingPortal())
     expect(stripe.billingPortal.sessions.create).toHaveBeenLastCalledWith(expect.objectContaining({ configuration: 'bpc_standard' }))
     vi.unstubAllEnvs()
+  })
+})
+
+describe('startCheckout : l’offre doit convenir à l’église', () => {
+  it('refuse Essentiel pour une église de 101 membres, accepte pile 100', async () => {
+    setup({ members: 101 })
+    expect(await redirectedTo(startCheckout(fd({ offer: 'essentiel', interval: 'month' })))).toBe('/espace/abonnement?erreur=trop_de_membres')
+    expect(stripe.checkout.sessions.create).not.toHaveBeenCalled()
+
+    setup({ members: 100 })
+    await redirectedTo(startCheckout(fd({ offer: 'essentiel', interval: 'month' })))
+    expect(stripe.checkout.sessions.create).toHaveBeenCalled()
+  })
+
+  it('refuse Essentiel pour 4 administrateurs, mais pas Communauté', async () => {
+    setup({ admins: 4 })
+    expect(await redirectedTo(startCheckout(fd({ offer: 'essentiel', interval: 'year' })))).toBe('/espace/abonnement?erreur=trop_d_admins')
+    setup({ admins: 4 })
+    await redirectedTo(startCheckout(fd({ offer: 'communaute', interval: 'year' })))
+    expect(stripe.checkout.sessions.create).toHaveBeenCalled()
+  })
+
+  it('refuse Communauté au-delà de 500 membres', async () => {
+    setup({ members: 501 })
+    expect(await redirectedTo(startCheckout(fd({ offer: 'communaute', interval: 'month' })))).toBe('/espace/abonnement?erreur=trop_de_membres')
+  })
+})
+
+describe('requestSolidarity', () => {
+  it('enregistre la demande d’une église de moins de 30 membres et prévient l’équipe', async () => {
+    setup({ members: 29 })
+    expect(await redirectedTo(requestSolidarity())).toBe('/espace/abonnement?solidarite=demandee')
+    expect(updatedChurch).toHaveProperty('solidarity_requested_at')
+    expect(sendSolidarity).toHaveBeenCalledWith({ churchName: 'Église de la Source', memberCount: 29 })
+  })
+
+  it('refuse à partir de 30 membres', async () => {
+    setup({ members: 30 })
+    expect(await redirectedTo(requestSolidarity())).toBe('/espace/abonnement?solidarite=trop-grande')
+    expect(updatedChurch).toBeNull()
+  })
+
+  it('ne redemande pas : déjà accordé, ou déjà en cours', async () => {
+    setup({ church: { isSolidarity: true } })
+    expect(await redirectedTo(requestSolidarity())).toBe('/espace/abonnement?solidarite=deja')
+    setup({ church: { solidarityRequestedAt: '2027-01-01T00:00:00Z' } })
+    expect(await redirectedTo(requestSolidarity())).toBe('/espace/abonnement?solidarite=en-cours')
+    expect(updatedChurch).toBeNull()
+  })
+
+  it('exige un administrateur', async () => {
+    setup()
+    await redirectedTo(requestSolidarity())
+    expect(mocks.requireChurch).toHaveBeenCalledWith('admin', { allowReadOnly: true })
   })
 })

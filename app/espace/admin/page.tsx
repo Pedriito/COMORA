@@ -1,5 +1,6 @@
 import { requireChurch, type ChurchRole } from '@/lib/auth/church'
 import Link from 'next/link'
+import { limitMessageFor } from '@/lib/billing/limits'
 
 import { BenevoleList, type Benevole } from './BenevoleList'
 import { FlashMessage } from '../_components/FlashMessage'
@@ -78,7 +79,7 @@ export default async function AdminPage({
           <FlashMessage message="Invitation envoyée avec succès." type="success" />
         )}
         {params.error && (
-          <FlashMessage message={errors[params.error] ?? errors.failed} type="error" />
+          <FlashMessage message={limitMessageFor(params.error, ctx.church) ?? errors[params.error] ?? errors.failed} type="error" />
         )}
 
         {/* Stats */}

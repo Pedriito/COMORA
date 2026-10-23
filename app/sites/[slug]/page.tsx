@@ -12,14 +12,33 @@ import { churchThemeStyle } from "@/lib/brand/theme";
 
 export const revalidate = 3600;
 
-async function loadChurch(slug: string) {
+function NotPublished({ name }: { name: string }) {
+  return (
+    <main className="min-h-screen flex items-center justify-center px-6 bg-teal-50">
+      <div className="max-w-md text-center space-y-3">
+        <h1 className="font-display text-3xl text-dark font-light">{name}</h1>
+        <p className="font-sans text-dark/70">Le site de cette église n’est pas encore publié. Revenez bientôt.</p>
+      </div>
+    </main>
+  );
+}
+
+async function loadSite(slug: string) {
   const site = await getPublicChurchSite(slug);
   if (!site) notFound();
   return site;
 }
 
+async function loadChurch(slug: string) {
+  const site = await loadSite(slug);
+  if (!site.published) notFound();
+  return site;
+}
+
 export async function generateMetadata({ params }: PageProps<"/sites/[slug]">): Promise<Metadata> {
   const { slug } = await params;
+  const site = await loadSite(slug);
+  if (!site.published) return { title: site.church.name, robots: { index: false } };
   const { settings } = await loadChurch(slug);
   const place = settings.address_city ? ` — ${settings.address_city}` : "";
   return {
@@ -30,7 +49,9 @@ export async function generateMetadata({ params }: PageProps<"/sites/[slug]">): 
 
 export default async function ChurchSitePage({ params }: PageProps<"/sites/[slug]">) {
   const { slug } = await params;
-  const { church, settings: s, schedules } = await loadChurch(slug);
+  const site = await loadSite(slug);
+  if (!site.published) return <NotPublished name={site.church.name} />;
+  const { church, settings: s, schedules } = site;
 
   const jsonLd = {
     "@context": "https://schema.org",

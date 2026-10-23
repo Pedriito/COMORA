@@ -1,5 +1,6 @@
 import { requireChurch } from '@/lib/auth/church'
 import Link from 'next/link'
+import { limitMessageFor } from '@/lib/billing/limits'
 import { inviteBenevole } from '../actions'
 import { churchRoleLabels, frequencyLabels, roleLabels } from '@/lib/labels'
 
@@ -122,7 +123,7 @@ export default async function InviterPage({
             </div>
 
             {params.error && (
-              <p className="text-sm text-red-500 font-sans">{errors[params.error] ?? errors.failed}</p>
+              <p className="text-sm text-red-500 font-sans">{limitMessageFor(params.error, ctx.church) ?? errors[params.error] ?? errors.failed}</p>
             )}
 
             <button type="submit"

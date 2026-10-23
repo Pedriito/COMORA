@@ -5,7 +5,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireChurch } from '@/lib/auth/church'
 import { invoiceFooter } from '@/lib/billing/legal'
 import { getStripe } from '@/lib/billing/stripe'
-import { checkoutPriceKey, isInterval, isOfferId } from '@/lib/offers'
+import { offerFits } from '@/lib/billing/limits'
+import { sendSolidarityRequestEmail } from '@/lib/email/espace'
+import { SOLIDARITY_MEMBER_THRESHOLD, checkoutPriceKey, isInterval, isOfferId } from '@/lib/offers'
 import { appUrl, siteUrl } from '@/lib/site'
 
 const BACK = '/espace/abonnement'
@@ -29,6 +31,15 @@ export async function startCheckout(formData: FormData) {
   const churchId = ctx.church.churchId
   const { data: church } = await ctx.supabase.from('churches').select('name, is_founder').eq('id', churchId).single()
   if (!church) redirect(`${BACK}?erreur=indisponible`)
+
+  // Une offre plus petite que l'église la bloquerait aussitôt : on propose plutôt la bonne
+  const [{ count: members }, { count: admins }] = await Promise.all([
+    ctx.supabase.from('members').select('id', { count: 'exact', head: true }).eq('church_id', churchId).neq('status', 'inactive'),
+    ctx.supabase.from('church_memberships').select('id', { count: 'exact', head: true }).eq('church_id', churchId).eq('role', 'admin').in('status', ['active', 'invited']),
+  ])
+  const usage = { members: members ?? 0, admins: admins ?? 0 }
+  const fit = offerFits(offer, usage)
+  if (!fit.ok) redirect(`${BACK}?erreur=${fit.reason === 'members' ? 'trop_de_membres' : 'trop_d_admins'}`)
 
   // Clé secrète : l'abonnement et le client Stripe de l'église courante, jamais ceux d'une autre.
   const admin = createAdminClient()
@@ -108,4 +119,31 @@ export async function openBillingPortal() {
     console.error('[abonnement] portail indisponible :', (error as Error).message)
   }
   redirect(url ?? `${BACK}?erreur=indisponible`)
+}
+
+/** Demande du tarif solidaire : enregistrée ici, validée ensuite par l'équipe Comora. */
+export async function requestSolidarity() {
+  const ctx = await requireChurch('admin', { allowReadOnly: true })
+  const churchId = ctx.church.churchId
+  if (ctx.church.isSolidarity) redirect(`${BACK}?solidarite=deja`)
+  if (ctx.church.solidarityRequestedAt) redirect(`${BACK}?solidarite=en-cours`)
+
+  const { count } = await ctx.supabase.from('members').select('id', { count: 'exact', head: true }).eq('church_id', churchId).neq('status', 'inactive')
+  const members = count ?? 0
+  if (members >= SOLIDARITY_MEMBER_THRESHOLD) redirect(`${BACK}?solidarite=trop-grande`)
+
+  // Clé secrète : la colonne de demande n'est pas modifiable par un compte ; église courante seulement.
+  const { error } = await createAdminClient()
+    .from('churches')
+    .update({ solidarity_requested_at: new Date().toISOString() })
+    .eq('id', churchId)
+    .is('solidarity_requested_at', null)
+  if (error) redirect(`${BACK}?erreur=indisponible`)
+
+  try {
+    await sendSolidarityRequestEmail({ churchName: ctx.church.churchName, memberCount: members })
+  } catch {
+    console.error('[solidarité] alerte interne non envoyée')
+  }
+  redirect(`${BACK}?solidarite=demandee`)
 }

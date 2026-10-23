@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { isWritable, trialDaysLeft, trialMessage, trialTone } from '@/lib/billing/access'
+import { isWritable, solidarityDaysLeft, trialDaysLeft, trialMessage, trialTone } from '@/lib/billing/access'
 import type { Membership } from '@/lib/auth/church'
 
 const TONES = {
@@ -12,8 +12,24 @@ const TONES = {
 /** Bandeau d'état de l'abonnement : discret pendant l'essai, net en lecture seule. */
 export function AccessBanner({ church }: { church: Membership }) {
   const { access } = church
-  if (!access || access === 'active') return null
+  if (!access) return null
   const isAdmin = church.role === 'admin'
+
+  // Tarif solidaire : 30 membres atteints, il reste un délai pour choisir une offre
+  const solidarityDays = solidarityDaysLeft(!!church.isSolidarity, church.solidarityExceededAt ?? null)
+  if (solidarityDays !== null && isWritable(access)) {
+    if (!isAdmin) return null
+    return (
+      <div className={`${TONES[trialTone(solidarityDays)]} px-5 py-2.5 text-sm font-sans flex flex-wrap items-center justify-between gap-2`}>
+        <span>
+          Votre église compte maintenant 30 membres : le tarif solidaire s’arrête.
+          {solidarityDays > 0 ? ` Il vous reste ${solidarityDays} ${solidarityDays === 1 ? 'jour' : 'jours'} pour choisir une offre.` : ' Choisissez une offre dès aujourd’hui.'}
+        </span>
+        <Link href="/espace/abonnement" className="font-medium underline underline-offset-2">Choisir une offre</Link>
+      </div>
+    )
+  }
+  if (access === 'active') return null
 
   if (access === 'trial') {
     // L'essai n'intéresse que ceux qui choisissent l'offre
