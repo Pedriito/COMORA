@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GRACE_DAYS, RETENTION_DAYS } from '@/lib/billing/access'
-import { dueTimeKinds, emailKey, renderLifecycleEmail, type ChurchLifecycleRow, type LifecycleKind } from './lifecycle'
+import { dueTimeKinds, emailKey, isOptionalKind, renderLifecycleEmail, type ChurchLifecycleRow, type LifecycleKind } from './lifecycle'
 
 const DAY = 864e5
 const NOW = new Date('2026-11-09T09:00:00Z')
@@ -166,5 +166,29 @@ describe('contenu des messages', () => {
     const { subject, html } = renderLifecycleEmail('subscription_confirmed', ctx)
     expect(subject).toBe('Votre abonnement Communauté est actif')
     expect(html).toContain('(annuel)')
+  })
+})
+
+describe('lien de désinscription', () => {
+  const ctx = { firstName: 'Camille', churchName: 'Église X', timeZone: 'Europe/Paris', daysLeft: 5, trialEndsAt: '2026-11-14T22:59:59Z', graceEndsAt: '2026-11-16T10:00:00Z', deletionAt: '2027-02-07T10:00:00Z', periodEnd: '2026-12-09T10:00:00Z', unsubscribeUrl: 'https://app.comora.fr/espace/desinscription/abc' }
+  const OPTIONAL: LifecycleKind[] = ['no_import_d3', 'trial_midway', 'trial_ending_7', 'trial_ending_1']
+  const SERVICE: LifecycleKind[] = ['welcome', 'deletion_warning', 'payment_failed', 'subscription_confirmed', 'cancellation_scheduled', 'subscription_ended']
+
+  it.each(OPTIONAL)('%s : message de rappel, avec le lien « Me désinscrire »', (kind) => {
+    expect(isOptionalKind(kind)).toBe(true)
+    const { html } = renderLifecycleEmail(kind, ctx)
+    expect(html).toContain('href="https://app.comora.fr/espace/desinscription/abc"')
+    expect(html).toContain('Me désinscrire')
+  })
+
+  it.each(SERVICE)('%s : message de service, jamais de lien de désinscription', (kind) => {
+    expect(isOptionalKind(kind)).toBe(false)
+    const { html } = renderLifecycleEmail(kind, ctx)
+    expect(html).not.toContain('Me désinscrire')
+    expect(html).not.toContain('desinscription')
+  })
+
+  it('sans lien fourni, rien n\'est affiché', () => {
+    expect(renderLifecycleEmail('trial_midway', { ...ctx, unsubscribeUrl: undefined }).html).not.toContain('Me désinscrire')
   })
 })

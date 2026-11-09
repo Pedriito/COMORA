@@ -23,6 +23,14 @@ export type LifecycleKind =
   | 'cancellation_scheduled'
   | 'subscription_ended'
 
+/**
+ * Messages de rappel, dont on peut se désinscrire (lien dans le pied de page et en-tête List-Unsubscribe).
+ * Tous les autres sont des messages de service (accueil, paiement, résiliation, suppression de l'espace) :
+ * ils sont envoyés même après une désinscription, car la personne doit les recevoir.
+ */
+const OPTIONAL_KINDS: ReadonlySet<LifecycleKind> = new Set(['no_import_d3', 'trial_midway', 'trial_ending_7', 'trial_ending_1'])
+export const isOptionalKind = (kind: LifecycleKind): boolean => OPTIONAL_KINDS.has(kind)
+
 /** Clé d'unicité d'un message : son type, suivi d'un repère quand il peut légitimement se reproduire. */
 export function emailKey(kind: LifecycleKind, discriminator?: string | Date | null): string {
   if (!discriminator) return kind
@@ -102,6 +110,8 @@ export type LifecycleContext = {
   periodEnd?: Date | string | null
   offerName?: string
   interval?: 'month' | 'year'
+  /** Lien de désinscription : n'est affiché que pour les messages de rappel. */
+  unsubscribeUrl?: string
 }
 
 export type RenderedEmail = { subject: string; html: string }
@@ -131,7 +141,7 @@ type Message = {
   button?: { label: string; url: string }
 }
 
-function build(ctx: LifecycleContext, m: Message): RenderedEmail {
+function build(ctx: LifecycleContext, m: Message, kind: LifecycleKind): RenderedEmail {
   const hello = ctx.firstName.trim() ? `Bonjour ${esc(ctx.firstName.trim())},` : 'Bonjour,'
   const body =
     emailParagraph(hello) +
@@ -147,6 +157,7 @@ function build(ctx: LifecycleContext, m: Message): RenderedEmail {
       body,
       churchName: ctx.churchName,
       reason: `Vous recevez ce message parce que vous administrez l'espace de ${ctx.churchName} sur ${siteConfig.name}.`,
+      unsubscribeUrl: isOptionalKind(kind) ? ctx.unsubscribeUrl : undefined,
     }),
   }
 }
@@ -169,7 +180,7 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           'Le plus simple pour démarrer : importer vos membres depuis un tableur, créer une première équipe, puis planifier un premier culte. Le guide de démarrage vous accompagne pas à pas.',
         ],
         button: { label: 'Continuer la mise en route', url: appAbsoluteUrl('/espace/demarrage') },
-      })
+      }, kind)
 
     case 'no_import_d3':
       return build(ctx, {
@@ -181,7 +192,7 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           "Aucun e-mail n'est envoyé aux personnes importées : vous choisissez ensuite qui inviter, et quand.",
         ],
         button: { label: 'Importer mes membres', url: appAbsoluteUrl('/espace/demarrage') },
-      })
+      }, kind)
 
     case 'trial_midway':
       return build(ctx, {
@@ -194,7 +205,7 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           "Quand vous serez prêt, choisissez l'offre qui correspond à la taille de votre église.",
         ],
         button: { label: 'Voir les offres', url: SUBSCRIPTION_URL() },
-      })
+      }, kind)
 
     case 'trial_ending_7':
       return build(ctx, {
@@ -206,7 +217,7 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           `Sans offre, l'espace de ${church} passera en lecture seule : vous pourrez toujours consulter vos données, mais plus les modifier. Elles sont conservées ${RETENTION_DAYS} jours.`,
         ],
         button: { label: 'Choisir une offre', url: SUBSCRIPTION_URL() },
-      })
+      }, kind)
 
     case 'trial_ending_1':
       return build(ctx, {
@@ -219,7 +230,7 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           'Choisir une offre prend une minute, et tout reprend là où vous en étiez.',
         ],
         button: { label: 'Choisir une offre', url: SUBSCRIPTION_URL() },
-      })
+      }, kind)
 
     case 'payment_failed':
       return build(ctx, {
@@ -232,7 +243,7 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           'Mettez à jour votre moyen de paiement avant cette date pour éviter le passage en lecture seule.',
         ],
         button: { label: 'Mettre à jour mon moyen de paiement', url: SUBSCRIPTION_URL() },
-      })
+      }, kind)
 
     case 'subscription_confirmed':
       return build(ctx, {
@@ -244,7 +255,7 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           'Vous retrouvez vos factures, votre moyen de paiement et la gestion de votre abonnement dans la page Abonnement.',
         ],
         button: { label: 'Gérer mon abonnement', url: SUBSCRIPTION_URL() },
-      })
+      }, kind)
 
     case 'cancellation_scheduled':
       return build(ctx, {
@@ -256,7 +267,7 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           `Ensuite, il passera en lecture seule et vos données seront conservées ${RETENTION_DAYS} jours. Si vous changez d'avis, vous pouvez reprendre votre abonnement depuis la page Abonnement avant cette date.`,
         ],
         button: { label: 'Ouvrir la page Abonnement', url: SUBSCRIPTION_URL() },
-      })
+      }, kind)
 
     case 'subscription_ended':
       return build(ctx, {
@@ -268,7 +279,7 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           `Elles sont conservées jusqu'au <strong>${longDate(ctx.deletionAt, tz)}</strong>. Vous pouvez reprendre un abonnement à tout moment avant cette date : tout sera retrouvé tel quel.`,
         ],
         button: { label: 'Reprendre un abonnement', url: SUBSCRIPTION_URL() },
-      })
+      }, kind)
 
     case 'deletion_warning':
       return build(ctx, {
@@ -281,6 +292,6 @@ export function renderLifecycleEmail(kind: LifecycleKind, ctx: LifecycleContext)
           'Choisissez une offre avant cette date : votre espace est réactivé immédiatement, avec toutes ses données.',
         ],
         button: { label: 'Réactiver mon espace', url: SUBSCRIPTION_URL() },
-      })
+      }, kind)
   }
 }

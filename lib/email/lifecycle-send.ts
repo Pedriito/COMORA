@@ -7,8 +7,10 @@ import {
   renderLifecycleEmail,
   type ChurchLifecycleRow,
   type LifecycleContext,
+  isOptionalKind,
   type LifecycleKind,
 } from '@/lib/email/lifecycle'
+import { unsubscribeHeaders, unsubscribeLinks, unsubscribedAmong } from '@/lib/email/unsubscribe'
 
 /*
  * Envoi des e-mails du cycle de vie, avec la clé secrète (tâche planifiée et webhook, sans session).
@@ -63,7 +65,25 @@ export async function sendLifecycleEmail(
   const tally = none()
   const recipients = await churchAdminRecipients(admin, church.id)
 
+  // Rappels : on n'écrit pas à ceux qui se sont désinscrits. En cas de doute (base indisponible),
+  // on n'envoie pas : mieux vaut un rappel en retard qu'un message à quelqu'un qui l'a refusé.
+  const optional = isOptionalKind(kind)
+  let optedOut = new Set<string>()
+  if (optional) {
+    try {
+      optedOut = await unsubscribedAmong(admin, recipients.map((r) => r.userId))
+    } catch (err) {
+      console.error(`[email/${kind}] désinscriptions illisibles :`, redact(err))
+      tally.failed += recipients.length
+      return tally
+    }
+  }
+
   for (const r of recipients) {
+    if (optedOut.has(r.userId)) {
+      tally.skipped++
+      continue
+    }
     const { data: claimed, error } = await admin.rpc('claim_email_send', { p_church_id: church.id, p_user_id: r.userId, p_kind: key })
     if (error) {
       console.error(`[email/${kind}] réservation impossible :`, error.code ?? 'erreur')
@@ -75,8 +95,21 @@ export async function sendLifecycleEmail(
       continue
     }
     try {
-      const { subject, html } = renderLifecycleEmail(kind, { ...extras, firstName: r.firstName, churchName: church.name, timeZone: church.timezone })
-      await deliver(kind, { to: r.email, subject, html, idempotencyKey: `lifecycle/${church.id}/${r.userId}/${key}` })
+      const links = optional ? unsubscribeLinks(r.userId) : null
+      const { subject, html } = renderLifecycleEmail(kind, {
+        ...extras,
+        firstName: r.firstName,
+        churchName: church.name,
+        timeZone: church.timezone,
+        unsubscribeUrl: links?.page,
+      })
+      await deliver(kind, {
+        to: r.email,
+        subject,
+        html,
+        idempotencyKey: `lifecycle/${church.id}/${r.userId}/${key}`,
+        headers: links ? unsubscribeHeaders(links.oneClick) : undefined,
+      })
       await admin.from('email_sends').update({ sent_at: new Date().toISOString() }).eq('church_id', church.id).eq('user_id', r.userId).eq('kind', key)
       tally.sent++
     } catch (err) {
@@ -142,10 +175,12 @@ async function wantsImportNudge(admin: Admin, churchId: string): Promise<boolean
  * Passage quotidien : envoie à chaque église les messages que son calendrier rend dus
  * (bienvenue, relance d'import, essai, impayé, avertissement de suppression).
  * Chaque église est traitée séparément : une erreur chez l'une n'arrête pas les autres.
+ * `churchIds` limite le passage à certaines églises (tests, rattrapage ciblé).
  */
-export async function runLifecycleEmails(admin: Admin, now: Date = new Date()): Promise<LifecycleSummary> {
+export async function runLifecycleEmails(admin: Admin, now: Date = new Date(), options: { churchIds?: string[] } = {}): Promise<LifecycleSummary> {
   const summary = emptySummary()
-  const { data, error } = await admin.from('churches').select(CHURCH_COLUMNS).neq('billing_status', 'active')
+  const query = admin.from('churches').select(CHURCH_COLUMNS).neq('billing_status', 'active')
+  const { data, error } = await (options.churchIds ? query.in('id', options.churchIds) : query)
   if (error) throw new Error(`églises : ${error.message}`)
 
   for (const church of (data ?? []) as ChurchLifecycleRow[]) {

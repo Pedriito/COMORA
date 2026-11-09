@@ -70,10 +70,10 @@ function emailFrom(): string {
 
 export async function deliver(
   label: string,
-  { to, subject, html, idempotencyKey }: { to: string; subject: string; html: string; idempotencyKey?: string },
+  { to, subject, html, idempotencyKey, headers }: { to: string; subject: string; html: string; idempotencyKey?: string; headers?: Record<string, string> },
 ) {
   // La clé d'idempotence (valable 24 h chez Resend) évite un doublon si un envoi est repris après un plantage
-  const { error } = await getResend().emails.send({ from: emailFrom(), to, subject, html }, idempotencyKey ? { idempotencyKey } : undefined)
+  const { error } = await getResend().emails.send({ from: emailFrom(), to, subject, html, ...(headers ? { headers } : {}) }, idempotencyKey ? { idempotencyKey } : undefined)
   if (error) throw new Error(`Resend ${label}: ${error.message}`)
 }
 

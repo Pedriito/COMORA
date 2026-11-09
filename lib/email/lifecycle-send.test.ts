@@ -5,6 +5,8 @@ vi.mock('@/lib/email/espace', () => ({ deliver }))
 
 const { runLifecycleEmails, sendLifecycleEmail, notifyChurch } = await import('./lifecycle-send')
 
+process.env.APP_TOKEN_SECRET = 'secret-de-test-suffisamment-long-0123456789'
+
 const DAY = 864e5
 const NOW = new Date('2026-11-09T09:00:00Z')
 const iso = (days: number) => new Date(NOW.getTime() + days * DAY).toISOString()
@@ -17,6 +19,8 @@ type Db = {
   emails: Record<string, string>
   members: Record<string, number>
   skipped: Record<string, string[]>
+  /** Personnes désinscrites des rappels ; « erreur » simule une base indisponible. */
+  unsubscribed?: string[] | 'erreur'
 }
 
 /** Faux client admin : mémoire en main, avec une vraie réservation « une seule fois » par (église, compte, clé). */
@@ -33,7 +37,11 @@ function fakeAdmin(db: Db) {
     let notEq: [string, unknown] | null = null
     const rows = (): Row[] => {
       const source: Row[] =
-        table === 'churches' ? db.churches : table === 'church_memberships' ? db.memberships : table === 'profiles' ? db.profiles : []
+        table === 'churches' ? db.churches
+          : table === 'church_memberships' ? db.memberships
+          : table === 'profiles' ? db.profiles
+          : table === 'email_unsubscribes' && Array.isArray(db.unsubscribed) ? db.unsubscribed.map((user_id) => ({ user_id, category: 'rappels' }))
+          : []
       return source.filter((r) => filters.every(([c, v]) => (Array.isArray(v) ? v.includes(r[c]) : r[c] === v)) && (!notEq || r[notEq[0]] !== notEq[1]))
     }
     const settle = () => {
@@ -53,6 +61,7 @@ function fakeAdmin(db: Db) {
       }
       void head
       void patch
+      if (table === 'email_unsubscribes' && db.unsubscribed === 'erreur') return { data: null, error: { message: 'base indisponible' } }
       return { data: rows(), error: null }
     }
     const b: Record<string, unknown> = {
@@ -256,5 +265,56 @@ describe('messages déclenchés par un événement', () => {
     const html = (deliver.mock.calls[0][1] as { html: string }).html
     expect(html).toContain('Église de Montréal')
     expect(html).toContain('14 novembre à 17:59')
+  })
+})
+
+describe('désinscription des rappels', () => {
+  const lastDay = () => church('A', 29.5)
+  const mailsTo = (email: string) => sentToEmail(email)
+  function sentToEmail(email: string) {
+    return deliver.mock.calls.map((c) => c[1] as { to: string; subject: string; html: string; headers?: Record<string, string> }).filter((m) => m.to === email)
+  }
+
+  it('un rappel porte le lien de désinscription et l\'en-tête « un clic »', async () => {
+    const admin = fakeAdmin(database({ churches: [lastDay()] }))
+    await runLifecycleEmails(admin as never, NOW)
+    const [mail] = mailsTo('camille@a.test')
+    expect(mail.html).toMatch(/href="[^"]*\/espace\/desinscription\/[^"]+"/)
+    expect(mail.headers?.['List-Unsubscribe']).toMatch(/^<https:\/\/[^>]*\/api\/desinscription\/[^>]+>$/)
+    expect(mail.headers?.['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click')
+    expect(mail.html).not.toContain('camille@a.test') // le lien ne porte aucune adresse
+  })
+
+  it('une personne désinscrite ne reçoit plus de rappel, mais ses collègues oui', async () => {
+    const admin = fakeAdmin(database({ churches: [lastDay()], unsubscribed: ['a-admin'] }))
+    const summary = await runLifecycleEmails(admin as never, NOW)
+    expect(mailsTo('camille@a.test')).toHaveLength(0)
+    expect(mailsTo('noa@a.test')).toHaveLength(1)
+    expect(summary.trial_ending_1).toEqual({ sent: 1, skipped: 1, failed: 0 })
+  })
+
+  it('un message de service part malgré la désinscription, sans lien ni en-tête', async () => {
+    const late = church('A', 60, { billing_status: 'past_due', trial_ends_at: null, grace_ends_at: iso(5) })
+    const admin = fakeAdmin(database({ churches: [late], unsubscribed: ['a-admin', 'a-admin2'] }))
+    await runLifecycleEmails(admin as never, NOW)
+    const [mail] = mailsTo('camille@a.test')
+    expect(mail.subject).toBe("Le paiement de votre abonnement n'a pas abouti")
+    expect(mail.html).not.toContain('Me désinscrire')
+    expect(mail.headers).toBeUndefined()
+  })
+
+  it('une désinscription n\'est pas consommée : elle n\'enregistre aucun envoi', async () => {
+    const admin = fakeAdmin(database({ churches: [lastDay()], unsubscribed: ['a-admin'] }))
+    await runLifecycleEmails(admin as never, NOW)
+    expect([...admin.claims.keys()].some((k) => k.includes('a-admin|'))).toBe(false)
+  })
+
+  it('si la liste des désinscrits est illisible, aucun rappel ne part', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const admin = fakeAdmin(database({ churches: [lastDay()], unsubscribed: 'erreur' }))
+    const summary = await runLifecycleEmails(admin as never, NOW)
+    expect(deliver).not.toHaveBeenCalled()
+    expect(summary.trial_ending_1.failed).toBe(2)
+    spy.mockRestore()
   })
 })

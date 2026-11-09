@@ -5,7 +5,7 @@ import { supabasePublicKey, supabaseUrl } from '@/lib/supabase/env'
 
 // Pages de l'espace accessibles sans être connecté
 const PUBLIC_EXACT = ['/espace/login', '/espace/inscription', '/espace/set-password', '/espace/mot-de-passe-oublie']
-const PUBLIC_PREFIXES = ['/espace/auth', '/espace/activer', '/espace/repondre', '/espace/rejoindre']
+const PUBLIC_PREFIXES = ['/espace/auth', '/espace/activer', '/espace/repondre', '/espace/rejoindre', '/espace/desinscription']
 
 export function isPublicEspacePath(pathname: string) {
   return PUBLIC_EXACT.includes(pathname) || PUBLIC_PREFIXES.some(p => pathname.startsWith(p))

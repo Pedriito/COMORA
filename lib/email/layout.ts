@@ -72,9 +72,11 @@ export type EmailLayoutInput = {
   reason: string
   /** Adresse publique de Comora (logo et liens). Par défaut : celle du site. */
   baseUrl?: string
+  /** Lien de désinscription, pour les messages dont on peut se désabonner. */
+  unsubscribeUrl?: string
 }
 
-export function renderEmail({ preheader, heading, body, churchName, reason, baseUrl = siteConfig.url }: EmailLayoutInput): string {
+export function renderEmail({ preheader, heading, body, churchName, reason, baseUrl = siteConfig.url, unsubscribeUrl }: EmailLayoutInput): string {
   const root = baseUrl.replace(/\/$/, '')
   const church = churchName?.trim()
   return `<!doctype html>
@@ -105,7 +107,8 @@ export function renderEmail({ preheader, heading, body, churchName, reason, base
     <tr><td style="background:${COLORS.card};padding:0 28px 30px;border-left:1px solid ${COLORS.line};border-right:1px solid ${COLORS.line};border-bottom:1px solid ${COLORS.line};border-radius:0 0 14px 14px;">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="border-top:1px solid ${COLORS.line};padding-top:18px;font-family:${FONT};font-size:13px;line-height:1.55;color:${COLORS.muted};">
         ${esc(reason)}<br>
-        Une question ? Écrivez-nous à <a href="mailto:${siteConfig.supportEmail}" style="color:${COLORS.inkSoft};">${siteConfig.supportEmail}</a>.
+        Une question ? Écrivez-nous à <a href="mailto:${siteConfig.supportEmail}" style="color:${COLORS.inkSoft};">${siteConfig.supportEmail}</a>.${unsubscribeUrl ? `<br>
+        Vous ne souhaitez plus recevoir ces rappels ? <a href="${esc(unsubscribeUrl)}" style="color:${COLORS.inkSoft};">Me désinscrire</a>.` : ''}
       </td></tr></table>
     </td></tr>
     <tr><td align="center" style="padding:20px 10px 4px;font-family:${FONT};font-size:12px;line-height:1.6;color:${COLORS.muted};">
