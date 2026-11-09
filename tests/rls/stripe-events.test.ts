@@ -258,3 +258,65 @@ describe("tarif solidaire", () => {
     expect(data).toMatchObject({ is_solidarity: false, solidarity_exceeded_at: null, offer: "communaute", billing_status: "active" });
   });
 });
+
+describe("e-mails aux administrateurs", () => {
+  const notifyChurch = vi.fn(async () => {});
+  const withMail = { notifySignature: notify, notifyChurch };
+  beforeEach(() => notifyChurch.mockClear());
+
+  it("abonnement actif : confirmation avec l'offre et la périodicité, repère = abonnement", async () => {
+    const c = await church({}, "mail-ok");
+    await handleStripeEvent(db, subscriptionEvent(c, "customer.subscription.created", {}, "communaute_year"), withMail);
+    expect(notifyChurch).toHaveBeenCalledWith({
+      churchId: c.churchId,
+      kind: "subscription_confirmed",
+      discriminator: c.subscription,
+      extras: { offerName: "Communauté", interval: "year" },
+    });
+  });
+
+  it("impayé : message d'échec de paiement avec la fin de la grâce", async () => {
+    const c = await church({}, "mail-fail");
+    await handleStripeEvent(db, subscriptionEvent(c, "customer.subscription.created"), withMail);
+    notifyChurch.mockClear();
+    await handleStripeEvent(db, invoiceEvent(c, "invoice.payment_failed"), withMail);
+    const graceEndsAt = (await churchState(c.churchId)).grace_ends_at!;
+    expect(notifyChurch).toHaveBeenCalledTimes(1);
+    expect(notifyChurch).toHaveBeenCalledWith(expect.objectContaining({ churchId: c.churchId, kind: "payment_failed", discriminator: new Date(graceEndsAt).toISOString().slice(0, 10) }));
+  });
+
+  it("résiliation programmée : un seul message, puis un message de fin à la résiliation effective", async () => {
+    const c = await church({}, "mail-cancel");
+    await handleStripeEvent(db, subscriptionEvent(c, "customer.subscription.created"), withMail);
+    notifyChurch.mockClear();
+
+    await handleStripeEvent(db, subscriptionEvent(c, "customer.subscription.updated", { cancel_at_period_end: true }), withMail);
+    const scheduled = notifyChurch.mock.calls.filter((call) => (call as unknown as [{ kind: string }])[0].kind === "cancellation_scheduled");
+    expect(scheduled).toHaveLength(1);
+    // Un nouvel événement alors que la résiliation est déjà connue ne renvoie pas de message de résiliation
+    await handleStripeEvent(db, subscriptionEvent(c, "customer.subscription.updated", { cancel_at_period_end: true }), withMail);
+    expect(notifyChurch.mock.calls.filter((call) => (call as unknown as [{ kind: string }])[0].kind === "cancellation_scheduled")).toHaveLength(1);
+
+    notifyChurch.mockClear();
+    await handleStripeEvent(db, subscriptionEvent(c, "customer.subscription.deleted"), withMail);
+    const ended = (await churchState(c.churchId)).deletion_scheduled_at!;
+    const [info] = notifyChurch.mock.calls[0] as unknown as [{ kind: string; discriminator: string; extras: { deletionAt: string } }];
+    expect(info).toMatchObject({ kind: "subscription_ended", discriminator: c.subscription });
+    expect(new Date(info.extras.deletionAt).getTime()).toBe(new Date(ended).getTime());
+  });
+
+  it("un événement rejoué ne redéclenche rien", async () => {
+    const c = await church({}, "mail-replay");
+    const event = subscriptionEvent(c, "customer.subscription.created");
+    await handleStripeEvent(db, event, withMail);
+    notifyChurch.mockClear();
+    expect(await handleStripeEvent(db, event, withMail)).toBe("duplicate");
+    expect(notifyChurch).not.toHaveBeenCalled();
+  });
+
+  it("un événement ignoré (prix étranger à Comora) n'envoie rien", async () => {
+    const c = await church({}, "mail-foreign");
+    await handleStripeEvent(db, subscriptionEvent(c, "customer.subscription.created", {}, "autre_produit"), withMail);
+    expect(notifyChurch).not.toHaveBeenCalled();
+  });
+});

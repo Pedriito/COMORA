@@ -1,6 +1,6 @@
 import 'server-only'
 import { Resend } from 'resend'
-import { appUrl, siteConfig, siteUrl as getSiteUrl } from '@/lib/site'
+import { appAbsoluteUrl, siteConfig, siteUrl as getSiteUrl } from '@/lib/site'
 import { daysFromNow, signToken, verifyToken } from '@/lib/tokens'
 import { resolveTimeZone } from '@/lib/timezone'
 import { emailButton, emailInfoCard, emailParagraph, esc, renderEmail } from '@/lib/email/layout'
@@ -19,11 +19,7 @@ export function verifyAssignmentResponseToken(token: string): string | null {
   return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null
 }
 
-/** Adresse absolue d'une page de l'espace (en local, appUrl() est relative). */
-function appLink(path: string): string {
-  const url = appUrl(path)
-  return url.startsWith('http') ? url : `${getSiteUrl()}${path}`
-}
+const appLink = appAbsoluteUrl
 
 /** Lien de réponse d'un bénévole (confirmer ou décliner). */
 export function memberResponseUrl(assignmentId: string, status: 'confirmed' | 'declined'): string {
@@ -72,8 +68,12 @@ function emailFrom(): string {
   return process.env.RESEND_FROM?.trim() || `${siteConfig.name} <bonjour@comora.fr>`
 }
 
-async function deliver(label: string, { to, subject, html }: { to: string; subject: string; html: string }) {
-  const { error } = await getResend().emails.send({ from: emailFrom(), to, subject, html })
+export async function deliver(
+  label: string,
+  { to, subject, html, idempotencyKey }: { to: string; subject: string; html: string; idempotencyKey?: string },
+) {
+  // La clé d'idempotence (valable 24 h chez Resend) évite un doublon si un envoi est repris après un plantage
+  const { error } = await getResend().emails.send({ from: emailFrom(), to, subject, html }, idempotencyKey ? { idempotencyKey } : undefined)
   if (error) throw new Error(`Resend ${label}: ${error.message}`)
 }
 

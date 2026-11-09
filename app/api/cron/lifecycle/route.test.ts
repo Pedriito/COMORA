@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { rpc, from, calls } = vi.hoisted(() => {
+const { rpc, from, calls, runLifecycleEmails } = vi.hoisted(() => {
   const calls: Array<{ table: string; method: string }> = []
   const rpc = vi.fn()
   const from = vi.fn((table: string) => {
@@ -14,9 +14,11 @@ const { rpc, from, calls } = vi.hoisted(() => {
     }
     return chain
   })
-  return { rpc, from, calls }
+  const runLifecycleEmails = vi.fn()
+  return { rpc, from, calls, runLifecycleEmails }
 })
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({ rpc, from }) }))
+vi.mock('@/lib/email/lifecycle-send', () => ({ runLifecycleEmails }))
 
 const { GET } = await import('./route')
 const request = (auth?: string) => new Request('http://x/api/cron/lifecycle', { headers: auth ? { authorization: auth } : {} }) as never
@@ -24,6 +26,8 @@ const request = (auth?: string) => new Request('http://x/api/cron/lifecycle', { 
 beforeEach(() => {
   process.env.CRON_SECRET = 'secret-de-test'
   rpc.mockReset()
+  runLifecycleEmails.mockReset()
+  runLifecycleEmails.mockResolvedValue({ churches: 3 })
   calls.length = 0
 })
 
@@ -32,6 +36,7 @@ describe('cron lifecycle', () => {
     expect((await GET(request())).status).toBe(401)
     expect((await GET(request('Bearer autre'))).status).toBe(401)
     expect(rpc).not.toHaveBeenCalled()
+    expect(runLifecycleEmails).not.toHaveBeenCalled()
   })
 
   it('passe les essais en lecture seule mais ne supprime jamais rien (simulation)', async () => {
@@ -41,6 +46,24 @@ describe('cron lifecycle', () => {
     expect(rpc).toHaveBeenCalledWith('church_lifecycle_step')
     expect(body).toMatchObject({ ok: true, trials_ended: 2, graces_ended: 1, deletionDue: 2, deleted: 0 })
     expect(calls.some(c => c.method === 'delete' || c.method === 'update')).toBe(false)
+  })
+
+  it('envoie les e-mails du cycle de vie après le passage en lecture seule', async () => {
+    rpc.mockResolvedValue({ data: { trials_ended: 0, graces_ended: 0 }, error: null })
+    const body = await (await GET(request('Bearer secret-de-test'))).json()
+    expect(runLifecycleEmails).toHaveBeenCalledTimes(1)
+    expect(rpc.mock.invocationCallOrder[0]).toBeLessThan(runLifecycleEmails.mock.invocationCallOrder[0])
+    expect(body).toMatchObject({ ok: true, emails: { churches: 3 } })
+  })
+
+  it("signale l'échec des e-mails (500) sans rien supprimer", async () => {
+    rpc.mockResolvedValue({ data: { trials_ended: 1, graces_ended: 0 }, error: null })
+    runLifecycleEmails.mockRejectedValue(new Error('détail interne'))
+    const response = await GET(request('Bearer secret-de-test'))
+    const text = await response.text()
+    expect(response.status).toBe(500)
+    expect(text).not.toContain('détail interne')
+    expect(JSON.parse(text)).toMatchObject({ ok: false, trials_ended: 1, deleted: 0 })
   })
 
   it('répond 500 sans détail si la base échoue', async () => {

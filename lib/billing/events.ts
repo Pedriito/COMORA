@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { GRACE_DAYS, RETENTION_DAYS } from '@/lib/billing/access'
-import { parseLookupKey, type BillingInterval, type OfferId } from '@/lib/offers'
+import { OFFER_CATALOG, parseLookupKey, type BillingInterval, type OfferId } from '@/lib/offers'
+import type { LifecycleKind } from '@/lib/email/lifecycle'
 
 /*
  * Traitement des événements Stripe : de l'événement à l'état de l'église.
@@ -22,6 +23,13 @@ export type EventDeps = {
   now?: Date
   /** Prévient l'équipe Comora qu'une église prend l'offre Signature. */
   notifySignature?: (info: { churchId: string; churchName: string; interval: BillingInterval }) => Promise<void>
+  /** Envoie un e-mail aux administrateurs de l'église (confirmation, impayé, résiliation). Ne doit jamais lever d'erreur. */
+  notifyChurch?: (info: {
+    churchId: string
+    kind: LifecycleKind
+    discriminator?: string | Date | null
+    extras?: { graceEndsAt?: string; deletionAt?: string | null; periodEnd?: string | null; offerName?: string; interval?: BillingInterval }
+  }) => Promise<void>
 }
 
 export type EventOutcome = 'processed' | 'duplicate' | 'ignored'
@@ -35,6 +43,7 @@ type SubscriptionRow = {
   stripe_customer_id: string
   stripe_subscription_id: string | null
   offer: OfferId | null
+  cancel_at_period_end: boolean | null
   last_event_at: string | null
 }
 
@@ -77,7 +86,7 @@ async function subscriptionByCustomer(admin: Admin, customerId: string | null): 
   if (!customerId) return null
   const { data } = await admin
     .from('subscriptions')
-    .select('church_id, stripe_customer_id, stripe_subscription_id, offer, last_event_at')
+    .select('church_id, stripe_customer_id, stripe_subscription_id, offer, cancel_at_period_end, last_event_at')
     .eq('stripe_customer_id', customerId)
     .maybeSingle()
   return (data as SubscriptionRow | null) ?? null
@@ -195,6 +204,29 @@ async function onSubscription(admin: Admin, event: StripeEventLike, deps: EventD
   if (parsed.offer === 'signature' && status === 'active' && row.offer !== 'signature') {
     await deps.notifySignature?.({ churchId: church.id, churchName: church.name, interval: parsed.interval })
   }
+
+  // E-mails aux administrateurs : le journal email_sends empêche tout doublon si l'événement est rejoué
+  const subscriptionId = id(sub) ?? row.stripe_subscription_id
+  const end = periodEnd(sub)
+  if (status === 'active' && subscriptionId) {
+    await deps.notifyChurch?.({
+      churchId: church.id,
+      kind: 'subscription_confirmed',
+      discriminator: subscriptionId,
+      extras: { offerName: OFFER_CATALOG[parsed.offer].name, interval: parsed.interval },
+    })
+  }
+  if (status === 'active' && sub?.cancel_at_period_end === true && !row.cancel_at_period_end && end) {
+    await deps.notifyChurch?.({ churchId: church.id, kind: 'cancellation_scheduled', discriminator: end.slice(0, 10), extras: { periodEnd: end } })
+  }
+  if (status === 'canceled' && subscriptionId) {
+    await deps.notifyChurch?.({
+      churchId: church.id,
+      kind: 'subscription_ended',
+      discriminator: subscriptionId,
+      extras: { deletionAt: (churchPatch.deletion_scheduled_at as string | undefined) ?? church.deletion_scheduled_at },
+    })
+  }
   return 'processed'
 }
 
@@ -210,8 +242,10 @@ async function onPaymentFailed(admin: Admin, event: StripeEventLike, deps: Event
   if (!church || church.billing_status !== 'active') return 'ignored'
 
   const now = deps.now ?? new Date()
-  await admin.from('churches').update({ billing_status: 'past_due', grace_ends_at: plusDays(now, GRACE_DAYS) }).eq('id', church.id)
+  const graceEndsAt = plusDays(now, GRACE_DAYS)
+  await admin.from('churches').update({ billing_status: 'past_due', grace_ends_at: graceEndsAt }).eq('id', church.id)
   await admin.from('subscriptions').update({ last_event_at: new Date(event.created * 1000).toISOString(), updated_at: now.toISOString() }).eq('church_id', church.id)
+  await deps.notifyChurch?.({ churchId: church.id, kind: 'payment_failed', discriminator: graceEndsAt.slice(0, 10), extras: { graceEndsAt } })
   return 'processed'
 }
 

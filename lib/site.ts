@@ -14,6 +14,8 @@ export const siteConfig = {
   contactEmail: "",
   /** Adresse d'aide affichée dans l'espace (« Aide & contact »). */
   supportEmail: "bonjour@comora.fr",
+  /** Signature des e-mails envoyés par l'équipe (variable EMAIL_SIGNATURE, ex. « Camille et Pierre-Elie, de Comora »). */
+  emailSignature: process.env.EMAIL_SIGNATURE?.trim() || "Pierre-Elie, de Comora",
 };
 
 /** URL de base des liens envoyés par e-mail ou partagés (lien d'invitation, calendrier…). */
@@ -31,4 +33,10 @@ export function appUrl(path = ""): string {
   const root = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "comora.fr";
   const base = explicit ?? (process.env.NODE_ENV === "production" ? `https://app.${root}` : "");
   return `${base.replace(/\/$/, "")}${path}`;
+}
+
+/** Adresse absolue d'une page de l'espace, pour les e-mails (en local, appUrl() est relative). */
+export function appAbsoluteUrl(path: string): string {
+  const url = appUrl(path);
+  return url.startsWith("http") ? url : `${siteUrl()}${path}`;
 }

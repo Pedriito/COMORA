@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
 import { isAuthorizedCron } from '../reminders/reminders'
+import { runLifecycleEmails } from '@/lib/email/lifecycle-send'
 
 /*
  * Cycle de vie des espaces, appelé chaque jour (Authorization: Bearer CRON_SECRET) :
@@ -26,14 +27,19 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date()
-  const warnBefore = new Date(now.getTime() + 7 * 864e5).toISOString()
-  const [{ data: toWarn }, { data: due }] = await Promise.all([
-    admin.from('churches').select('id').gt('deletion_scheduled_at', now.toISOString()).lte('deletion_scheduled_at', warnBefore),
-    admin.from('churches').select('id').lte('deletion_scheduled_at', now.toISOString()),
-  ])
+
+  // Un échec d'e-mail ne doit pas masquer le reste du passage : on le signale par un code 500 à la fin
+  let emails: Awaited<ReturnType<typeof runLifecycleEmails>> | null = null
+  try {
+    emails = await runLifecycleEmails(admin, now)
+  } catch (err) {
+    console.error('[cron/lifecycle] e-mails impossibles :', (err as Error).message)
+  }
+
+  const { data: due } = await admin.from('churches').select('id').lte('deletion_scheduled_at', now.toISOString())
 
   console.log(
-    `[cron/lifecycle] ${JSON.stringify(step)} · à avertir (J-7) : ${toWarn?.length ?? 0} · suppression échue (SIMULATION, rien n'est supprimé) : ${due?.length ?? 0}`,
+    `[cron/lifecycle] ${JSON.stringify(step)} · e-mails : ${emails ? JSON.stringify(emails) : 'ÉCHEC'} · suppression échue (SIMULATION, rien n'est supprimé) : ${due?.length ?? 0}`,
   )
-  return Response.json({ ok: true, ...(step as object), toWarn: toWarn?.length ?? 0, deletionDue: due?.length ?? 0, deleted: 0 })
+  return Response.json({ ok: emails !== null, ...(step as object), emails, deletionDue: due?.length ?? 0, deleted: 0 }, { status: emails ? 200 : 500 })
 }

@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { handleStripeEvent } from '@/lib/billing/events'
 import { getStripe } from '@/lib/billing/stripe'
 import { sendSignatureSubscribedEmail } from '@/lib/email/espace'
+import { notifyChurch } from '@/lib/email/lifecycle-send'
 
 /*
  * Webhook Stripe. La signature est vérifiée sur le corps BRUT (avant tout JSON.parse) ;
@@ -24,7 +25,10 @@ export async function POST(req: Request) {
 
   try {
     // Clé secrète : événement signé par Stripe, sans session ; l'église est retrouvée par le client Stripe.
-    const outcome = await handleStripeEvent(createAdminClient(), event, {
+    const admin = createAdminClient()
+    const outcome = await handleStripeEvent(admin, event, {
+      // Confirmation, impayé, résiliation : e-mail aux administrateurs, jamais bloquant pour le paiement
+      notifyChurch: ({ churchId, kind, discriminator, extras }) => notifyChurch(admin, churchId, kind, discriminator, extras),
       notifySignature: async ({ churchName, interval }) => {
         try {
           await sendSignatureSubscribedEmail({ churchName, interval })

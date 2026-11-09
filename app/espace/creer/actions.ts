@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { notifyChurch } from '@/lib/email/lifecycle-send'
 import {
   readCreateChurchForm, validateCreateChurch,
   type CreateChurchField, type CreateChurchInput,
@@ -93,7 +94,7 @@ export async function createChurchSpace(_previous: CreateChurchState, formData: 
     return failure(input, {}, 'La création n’a pas pu aboutir. Réessayez dans quelques instants.')
   }
 
-  const result = data as { ok: boolean; error?: string }
+  const result = data as { ok: boolean; error?: string; church_id?: string }
   if (!result.ok) {
     switch (result.error) {
       case 'slug_taken':
@@ -111,6 +112,9 @@ export async function createChurchSpace(_previous: CreateChurchState, formData: 
         return failure(input, {}, 'La création n’a pas pu aboutir. Réessayez dans quelques instants.')
     }
   }
+
+  // E-mail de bienvenue ; en cas d'échec, le cron quotidien le renverra dans la semaine
+  if (result.church_id) await notifyChurch(admin, result.church_id, 'welcome')
 
   revalidatePath('/espace', 'layout')
   redirect('/espace/demarrage')
