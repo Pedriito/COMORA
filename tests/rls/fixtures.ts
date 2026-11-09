@@ -81,7 +81,7 @@ export const CHURCH_TABLES: TableSpec[] = [
  * Tables de `public` sans `church_id`, testées à part ; ou tables de la
  * landing, hors de l'espace des églises.
  */
-export const OTHER_TABLES = ["churches", "profiles", "platform_admins", "push_subscriptions", "stripe_events", "offer_limits", "email_sends", "email_unsubscribes"];
+export const OTHER_TABLES = ["churches", "profiles", "platform_admins", "push_subscriptions", "stripe_events", "offer_limits", "email_sends", "email_unsubscribes", "platform_audit_log"];
 
 /** Crée une église complète : comptes de chaque rôle et une ligne par table. */
 export async function seedChurch(label: string): Promise<ChurchFixture> {
